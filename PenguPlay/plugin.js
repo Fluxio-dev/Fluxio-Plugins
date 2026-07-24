@@ -303,14 +303,27 @@
         const headers = (st.behaviorHints && st.behaviorHints.proxyHeaders && st.behaviorHints.proxyHeaders.request) || {};
         const finalUrl = st.url;
 
-        // Parse size from description or title (one-line comment)
+        // Parse size from description, title, filename or videoSize (one-line comment)
         const desc = st.description || st.title || "";
-        const sizeMatch = desc.match(/([\d\.]+\s*(?:GB|MB|GiB|MiB))\b/i);
-        const size = sizeMatch ? sizeMatch[1].trim() : "";
+        const filename = (st.behaviorHints && st.behaviorHints.filename) || "";
+        const sizeSearchText = desc + " " + filename;
+        const sizeMatch = sizeSearchText.match(/([\d\.]+\s*(?:GB|MB|GiB|MiB))\b/i);
+        let size = sizeMatch ? sizeMatch[1].trim().replace(/[\s\.]+(GB|MB|GiB|MiB)/i, " $1") : "";
+
+        if (!size) {
+          const bytes = st.size || (st.behaviorHints && (st.behaviorHints.videoSize || st.behaviorHints.size)) || st.videoSize;
+          if (bytes && !isNaN(bytes)) {
+            const num = Number(bytes);
+            if (num >= 1073741824) {
+              size = (num / 1073741824).toFixed(2) + " GB";
+            } else if (num >= 1048576) {
+              size = (num / 1048576).toFixed(2) + " MB";
+            }
+          }
+        }
 
         // Parse quality name and value from quality property or name/desc/filename (one-line comment)
         const nameText = st.name || "";
-        const filename = (st.behaviorHints && st.behaviorHints.filename) || "";
         const combinedText = nameText + " " + desc + " " + filename;
         let quality = "";
         let qVal = st.quality ? parseInt(st.quality) : 0;
