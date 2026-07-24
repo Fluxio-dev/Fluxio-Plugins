@@ -1,0 +1,21 @@
+{
+  "packageName": "dev.streamflix.penguplay",
+  "name": "PenguPlay",
+  "version": 1,
+  "baseUrl": "https://pengu.uk",
+  "tmdbBaseUrl": "https://api.tmdb.org",
+  "apiKey": "",
+  "description": "Browse Top Streaming lists and stream movies & series via PenguPlay Stremio addon.",
+  "authors": ["0xBadCode"],
+  "languages": ["en"],
+  "categories": ["Movies", "TV"],
+  "catalogueAddons": [
+    "https://top-streaming.stream/18452bde-db14-4659-9c57-d2480e668150/manifest.json"
+  ],
+  "metaAddons": [
+    "https://top-streaming.stream/18452bde-db14-4659-9c57-d2480e668150/manifest.json"
+  ],
+  "streamingAddons": [
+    "https://pengu.uk/zbc-xTgMxDAbgd8kMUnM6etANISEGVJC6sEXOxUfSpEmJc6Ep4t2ZCtTq-H-_ZdlfgtKcR1S9t8bOWqxEiuLqpKOLOGUEz3yXqkOdDpx91UB4aZhMdhWJVRX2ARpmzs4gUGN6PIxUMsKOOWCxl1YEF_nd1ZkJqDC15t1CLpVxt8fRB_6NlLIfhhNmJNXJ5eJ_lovbszx0Z7H_a40j0AGVcRnH36tgLlaV5DGKlYgP95vXR2qTnLdvkprCzxt7TO3FXj8H_XFnt1k-bdSaKonvHw/manifest.json"
+  ]
+}
