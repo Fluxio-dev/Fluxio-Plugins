@@ -1,20 +1,19 @@
 {
 	"packageName": "dev.streamflix.stremio",
 	"name": "stremio http",
-	"version": 3,
+	"version": 4,
 	"baseUrl": "https://stremio-hub.local",
-	"description": "Aggregates streaming links from Stremio HTTP addons.Dynamic quality extraction, URL validation, MAGIC_PROXY for reliable playback.",
+	"description": "Aggregates streaming links from Stremio HTTP addons. Dynamic quality extraction, URL validation, MAGIC_PROXY for reliable playback.",
 	"authors": ["0xBadCode"],
 	"languages": ["EN", "HI", "TE", "TA"],
 	"categories": ["Movies", "TV", "Anime"],
-	"streamTitleTemplate": "{if stream.resolution}{stream.resolution} {/if}{if stream.codec}{stream.codec} {/if}{if stream.audio}🔊 {stream.audio} {/if}{if stream.size}💾 {stream.size} {/if}{if stream.peers}👤{stream.peers} {/if}{if stream.seeders}🌱{stream.seeders} {/if}[{stream.addonName}]",
+	"streamTitleTemplate": "{if stream.size}{stream.size} | {/if}{if stream.quality}{stream.quality} | {/if}{if stream.server}{stream.server} | {/if}{if stream.provider}{stream.provider} | {/if}{if stream.peers}Peers {stream.peers} | {/if}{if stream.seeders}Seeders {stream.seeders} | {/if}{stream.addonName}",
 	"catalogueAddons": [
 		"https://catalog.ers.pw/bmZ4LGRucCxhbXAsYXRwLGhibSxwY3AsaGx1LHBtcCxjcnUsamhzLHNvbnlsaXYsemVlOjpJTjoxNzgzMDU4OTYxMTY3OjA6MDo%3D/manifest.json"
 	],
 	"metaAddons": ["https://v3-cinemeta.strem.io/manifest.json"],
 	"streamingAddons": [
 		"https://87d6a6ef6b58-webstreamrmbg.baby-beamup.club/%7B%22multi%22%3A%22on%22%2C%22hi%22%3A%22on%22%2C%22pa%22%3A%22on%22%2C%22excludeResolution_144p%22%3A%22on%22%2C%22excludeResolution_240p%22%3A%22on%22%2C%22excludeResolution_360p%22%3A%22on%22%7D/manifest.json",
-		"https://pengu.uk/zbc_BSgMxEAbgd8lZoVmqq72JUDyICr14C5Nk1qRJk5rJxqbiu3tq0aHH_5th-OdbUJ6LQbUMzrpZi5XISVyd1PiEU0EIzHe5edT5wDk0DYSXlskW35DYqME-QsfC2VsE6kyPB0O1IOyYA1Z36UT0ifdu3k5AlamzHw5KbYyHPZoQ-TdSyuU4nrAgqUHeLv5mubj7l8fhHK0n0BGV9QXNuQbM1amaAyaxEunxYfO2pj7JefsuqSv8unHH3F_d9XPUn_duW-TTRr1QI_HzCw/manifest.json",
 		"https://hdhub.thevolecitor.qzz.io/eyJ0b3Jib3giOiJ1bnNldCIsInF1YWxpdGllcyI6IjIxNjBwLDEwODBwLDcyMHAsNDgwcCIsInNvcnQiOiJkZXNjIn0/manifest.json",
 		"https://aiostreamsfortheweebs.midnightignite.me/stremio/8062780c-5265-40db-85bd-beadc99e3602/eyJpIjoiNTRHOHp6ZzA4c3ViVlhDQW8zNW41dz09IiwiZSI6IkVnaTYwaWNlVGZQVzBiZUFXc2tTdjZXdTEzS3ZLM2F4aXJoYk5GQk9vYzA9IiwidCI6ImEifQ/manifest.json",
 		"https://moviebox-cfa7.onrender.com/eyJyZXNvbHV0aW9uIjpbIjEwODBwIiwiNzIwcCIsIjQ4MHAiXSwibGFuZ3VhZ2UiOlsiZW4iLCJoaSIsIm9yaWciXSwicHJveHlfdXJsIjoiIiwicHJvdmlkZXJzIjpbIm1vYmlsZSIsIndlYiIsImxlZ2FjeSJdLCJuYW1lX3RlbXBsYXRlIjoiW01vdmllQm94XSB7cmVzb2x1dGlvbn0iLCJ0aXRsZV90ZW1wbGF0ZSI6IvCfkr4ge3NpemV9IOKame-4jyBNb3ZpZUJveFxcbvCfkr8ge2F1ZGlvfSDwn5ej77iPIHtzdWJ0aXRsZXN9In0/manifest.json",
