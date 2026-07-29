@@ -593,6 +593,7 @@
 
             // Title - Kotlin: document.select("title").text()
             var title = extractTagText(html, 'title');
+            var searchYear = (title.match(/\b(19\d{2}|20\d{2})\b/) || [])[0] || '';
             title = cleanTitle(title) || 'Unknown';
 
             // Fire rogmovies search in background using cleaned title
@@ -705,6 +706,7 @@
                     if (!tid && title) {
                         var sk = encodeURIComponent(title.replace(/\s*\(.*?\)/g, '').trim());
                         var su = TMDB_API + '/search/' + mt + '?query=' + sk;
+                        if (searchYear) su += '&' + (mt === 'tv' ? 'first_air_date_year' : 'primary_release_year') + '=' + searchYear;
                         if (TMDB_KEY) su += '&api_key=' + TMDB_KEY;
                         var sr = await fetchJson(su);
                         if (sr && sr.results && sr.results.length > 0) tid = sr.results[0].id;
