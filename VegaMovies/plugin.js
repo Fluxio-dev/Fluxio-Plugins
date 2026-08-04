@@ -628,21 +628,21 @@
                 return '';
             })();
 
-            // Poster: try multiple patterns for rogmovies
+            // Poster: try og:image first, then link preloads, then p tags, then other imgs
             var poster = '';
-            var pRe = /<p[^>]*>([\s\S]*?)<\/p>/gi;
-            var pM;
-            while ((pM = pRe.exec(html)) !== null) {
-                var imgM = pM[1].match(/<img[^>]+src="([^"]+)"[^>]*>/i);
-                if (imgM && imgM[1]) { poster = imgM[1]; break; }
-            }
-            if (!poster) {
-                var ogM = html.match(/<meta\s+property="og:image"[^>]+content="([^"]+)"/i);
-                if (ogM) poster = ogM[1];
-            }
+            var ogM = html.match(/<meta\s+property="og:image"[^>]+content="([^"]+)"/i);
+            if (ogM) poster = ogM[1];
             if (!poster) {
                 var preM = html.match(/<link\s+rel="preload"[^>]+as="image"[^>]+href="([^"]+)"/i);
                 if (preM) poster = preM[1];
+            }
+            if (!poster) {
+                var pRe = /<p[^>]*>([\s\S]*?)<\/p>/gi;
+                var pM;
+                while ((pM = pRe.exec(html)) !== null) {
+                    var imgM = pM[1].match(/<img[^>]+src="([^"]+)"[^>]*>/i);
+                    if (imgM && imgM[1]) { poster = imgM[1]; break; }
+                }
             }
             if (!poster) {
                 var imgRe = /<img[^>]+src="([^"]+)"[^>]*>/gi;
@@ -781,7 +781,7 @@
                 }
             }
 
-            // Await TMDB metadata (likely resolved during intermediate fetches)
+            var originalPoster = poster; // Save original poster in case TMDB fails
             try {
                 var tRes = await metaP;
                 if (tRes) {
@@ -790,12 +790,13 @@
                     genres = Array.isArray(tRes.genres) ? tRes.genres.map(function(g) { return g.name; }) : [];
                     imdbRating = tRes.vote_average ? String(tRes.vote_average) : '';
                     year = (tRes.release_date || tRes.first_air_date || '').split('-')[0] || year;
-                    if (tRes.poster_path) poster = proxyImg('https://image.tmdb.org/t/p/w500' + tRes.poster_path);
+                    poster = tRes.poster_path ? proxyImg('https://image.tmdb.org/t/p/w500' + tRes.poster_path) : originalPoster; // Fallback to original poster if TMDB poster missing
                     if (tRes.external_ids && tRes.external_ids.imdb_id) imdbId = tRes.external_ids.imdb_id;
                     var rawCast = (tRes.credits && tRes.credits.cast) || [];
                     var castList = rawCast.slice(0, 15).map(function(c) { return new Actor({ name: c.name, image: c.profile_path ? proxyImg('https://image.tmdb.org/t/p/w500' + c.profile_path) : null, role: c.character }); });
                 }
             } catch (e) {}
+            if (!poster) poster = originalPoster; // Fallback to original poster if poster ended up empty
 
             // Fetch episode stills from TMDB (1 call per season)
             var stillMap = {};
