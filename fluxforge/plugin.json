@@ -1,5 +1,5 @@
 {
-  "packagename": "dev.streamflix.fluxforge",
+  "packagename": "dev.fluxio.fluxforge",
   "name": "FluxForge",
   "version": 1,
   "baseUrl": "https://api.tmdb.org",

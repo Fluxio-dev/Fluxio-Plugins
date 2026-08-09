@@ -1,5 +1,5 @@
 {
-	"packageName": "dev.streamflix.stremio",
+	"packageName": "dev.fluxio.stremio",
 	"name": "stremio http",
 	"version": 4,
 	"baseUrl": "https://stremio-hub.local",

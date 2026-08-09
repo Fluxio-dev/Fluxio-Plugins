@@ -1,5 +1,5 @@
 {
-  "packagename": "dev.streamflix.rogmovies",
+  "packagename": "dev.fluxio.rogmovies",
   "name": "ROGmovies",
   "version": 1,
   "baseUrl": "https://rogmovies.cv",

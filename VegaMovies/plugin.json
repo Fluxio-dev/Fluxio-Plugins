@@ -1,5 +1,5 @@
 {
-  "packageName": "dev.streamflix.vegamovies",
+  "packageName": "dev.fluxio.vegamovies",
   "name": "VegaMovies",
   "version": 1,
   "baseUrl": "https://vegamovies.market",
