@@ -659,6 +659,9 @@
                     description: clean(data.desc),
                     type: (episodes.length > 1 || seasonsList.length > 0) ? 'tvseries' : 'movie',
                     year: parseInt(data.year, 10) || undefined,
+                    // Pass cast and genre hints so the metadata resolver can disambiguate same-title shows (one-line comment)
+                    cast: String(data.cast || '').split(',').map(function (n) { return new Actor({ name: clean(n) }); }).filter(function (a) { return a.name; }),
+                    tags: String(data.genre || '').split(',').map(function (g) { return clean(g); }).filter(Boolean),
                     seasons: seasonsList.length > 0 ? seasonsList : undefined,
                     episodes: episodes
                 })
