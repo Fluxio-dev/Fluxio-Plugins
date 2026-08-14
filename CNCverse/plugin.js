@@ -668,13 +668,114 @@
         }
     }
 
+    const REAL_AUDIO_TRACKS = [
+        ['ara', 'Arabic'], ['ces', 'Czech'], ['deu', 'German'], ['eng', 'English'],
+        ['spa', 'Spanish'], ['spa', 'Spanish'], ['fra', 'French'], ['fra', 'French'],
+        ['hin', 'Hindi'], ['hun', 'Hungarian'], ['ita', 'Italian'], ['jpn', 'Japanese'],
+        ['kan', 'Kannada'], ['mal', 'Malayalam'], ['pol', 'Polish'], ['por', 'Portuguese'],
+        ['tam', 'Tamil'], ['tel', 'Telugu'], ['tha', 'Thai'], ['tur', 'Turkish']
+    ];
+
+    async function buildRealPlaylist(provider, epId) {
+        // Real frames and audio are open on s12, so generate the playlist client-side with no premium token (one-line comment)
+        const cdn = 'https://s12.freecdn32z.top';
+        const base = cdn + '/files/' + encodeURIComponent(epId);
+        const refHeaders = { Referer: 'https://net52.cc/pv/', 'User-Agent': COMMON_HEADERS['User-Agent'] };
+        let audioM3u8 = null;
+        for (let i = 3; i < REAL_AUDIO_TRACKS.length + 3; i++) {
+            const idx = i % REAL_AUDIO_TRACKS.length;
+            const r = await http_get(base + '/a/' + idx + '/' + idx + '.m3u8', refHeaders);
+            if (r.status === 200 && String(r.body).indexOf('#EXTM3U') === 0) { audioM3u8 = r.body; break; }
+        }
+        if (!audioM3u8) return '';
+        let prefix = '';
+        let audioDur = 0;
+        const audioLines = String(audioM3u8).split('\n');
+        for (let i = 0; i < audioLines.length; i++) {
+            const line = audioLines[i].trim();
+            if (line.indexOf('#EXTINF:') === 0) {
+                const sec = parseFloat(line.substring(8).split(',')[0]);
+                if (!isNaN(sec)) audioDur += sec;
+            } else if (line && line[0] !== '#' && !prefix) {
+                const m = line.match(/(\d+)_\d+\.js/);
+                if (m) prefix = m[1];
+            }
+        }
+        if (!prefix || audioDur <= 0) return '';
+        const frameUrl = function (q, n) { return base + '/' + q + '/' + prefix + '_' + String(n).padStart(3, '0') + '.woff2'; };
+        const probe = async function (q, n) {
+            try { return (await http_get(frameUrl(q, n), refHeaders)).status === 200; }
+            catch (_) { return false; }
+        };
+        let count = Math.ceil(audioDur / 3.0);
+        // Real variants are exactly 3s per frame, so video count = ceil(audioDur / 3), verified on the cheapest quality (one-line comment)
+        const probeQ = (await probe('720p', 0)) ? '720p' : '1080p';
+        if (!(await probe(probeQ, count - 1)) || await probe(probeQ, count)) {
+            for (let d = 1; d <= 8; d++) {
+                if (!(await probe(probeQ, count - d))) { count -= d; break; }
+                if (await probe(probeQ, count + d)) { count += d; break; }
+            }
+        }
+        if (count < 1) return '';
+        const buildVariant = function (q, bw, res) {
+            let out = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:3\n#EXT-X-MEDIA-SEQUENCE:0\n';
+            for (let n = 0; n < count; n++) out += '#EXTINF:3.0,\n' + frameUrl(q, n) + '\n';
+            return out + '#EXT-X-ENDLIST\n';
+        };
+        const b64 = function (s) {
+            try { return btoa(unescape(encodeURIComponent(s))); }
+            catch (_) { return btoa(s); }
+        };
+        const storePlaylist = async function (content) {
+            if (typeof globalThis.storeGeneratedPlaylist === 'function') {
+                const token = await globalThis.storeGeneratedPlaylist(content);
+                if (token && token.indexOf('gp') === 0) return 'magic_m3u8:' + token;
+            }
+            return 'magic_m3u8:' + b64(content);
+        };
+        const v1080 = (await probe('1080p', 0)) ? buildVariant('1080p', 1000000, '1920x1080') : '';
+        const v720 = (await probe('720p', 0)) ? buildVariant('720p', 600000, '1280x720') : '';
+        if (!v1080 && !v720) return '';
+        let master = '#EXTM3U\n#EXT-X-VERSION:3\n';
+        for (let i = 0; i < REAL_AUDIO_TRACKS.length; i++) {
+            master += '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aac",LANGUAGE="' + REAL_AUDIO_TRACKS[i][0] + '",NAME="' + REAL_AUDIO_TRACKS[i][1] + '",DEFAULT=' + (i === 3 ? 'YES' : 'NO') + ',URI="' + base + '/a/' + i + '/' + i + '.m3u8"\n';
+        }
+        if (v1080) {
+            master += '#EXT-X-STREAM-INF:BANDWIDTH=1000000,AUDIO="aac",RESOLUTION=1920x1080,CLOSED-CAPTIONS=NONE\n';
+            master += await storePlaylist(v1080) + '\n';
+        }
+        if (v720) {
+            master += '#EXT-X-STREAM-INF:BANDWIDTH=600000,AUDIO="aac",DEFAULT=YES,RESOLUTION=1280x720,CLOSED-CAPTIONS=NONE\n';
+            master += await storePlaylist(v720) + '\n';
+        }
+        master += '#EXT-X-ENDLIST\n';
+        return await storePlaylist(master);
+    }
+
     async function loadPrimeStreams(provider, payload) {
+        const out = [];
+        try {
+            // Build a real playlist from the open s12 CDN data (no premium token needed) (one-line comment)
+            const realMaster = await buildRealPlaylist(provider, payload.id);
+            if (realMaster) {
+                out.push(new StreamResult({
+                    url: realMaster,
+                    source: 'PrimeVideo [Real]',
+                    type: 'hls',
+                    headers: {
+                        Referer: provider.playUrl + '/',
+                        'User-Agent': COMMON_HEADERS['User-Agent']
+                    }
+                }));
+                return out;
+            }
+        } catch (_) { /* fall back to playlist.php below */ }
+
         // Enforce new verified token for prime stream extraction to avoid playback 403 errors (one-line comment)
         const cookieStr = await cookieString(provider, true);
         const playlistUrl = provider.baseUrl + provider.playlistPath + '?id=' + encodeURIComponent(payload.id) + '&t=' + encodeURIComponent(payload.title || '') + '&tm=' + unixTs();
         const res = await http_get(playlistUrl, Object.assign({}, COMMON_HEADERS, { Referer: provider.baseUrl + '/home', Cookie: cookieStr, 'X-Requested-With': 'XMLHttpRequest' }));
         const playlist = parseJsonSafe(res.body, []);
-        const out = [];
         (Array.isArray(playlist) ? playlist : []).forEach(function (item) {
             (Array.isArray(item.sources) ? item.sources : []).forEach(function (src, i) {
                 let fullUrl = String(src.file || '').replace('/tv/', '/');
