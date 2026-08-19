@@ -3,13 +3,13 @@
 
   // Get home view base URL from manifest catalogueAddons (one-line comment)
   function getHomeBase() {
-    const url = (typeof manifest !== "undefined" && manifest && manifest.catalogueAddons && manifest.catalogueAddons[0]) || "https://top-streaming.stream/18452bde-db14-4659-9c57-d2480e668150/manifest.json";
+    const url = (typeof manifest !== "undefined" && manifest && manifest.catalogueAddons && manifest.catalogueAddons[0]);
     return url.replace(/\/manifest\.json$/, "").replace(/\/$/, "");
   }
 
   // Get streaming base URL from manifest streamingAddons (one-line comment)
   function getStreamBase() {
-    const url = (typeof manifest !== "undefined" && manifest && manifest.streamingAddons && manifest.streamingAddons[0]) || "https://pengu.uk/zbc-xTgMxDAbgd8kMUnM6etANISEGVJC6sEXOxUfSpEmJc6Ep4t2ZCtTq-H-_ZdlfgtKcR1S9t8bOWqxEiuLqpKOLOGUEz3yXqkOdDpx91UB4aZhMdhWJVRX2ARpmzs4gUGN6PIxUMsKOOWCxl1YEF_nd1ZkJqDC15t1CLpVxt8fRB_6NlLIfhhNmJNXJ5eJ_lovbszx0Z7H_a40j0AGVcRnH36tgLlaV5DGKlYgP95vXR2qTnLdvkprCzxt7TO3FXj8H_XFnt1k-bdSaKonvHw/manifest.json";
+    const url = (typeof manifest !== "undefined" && manifest && manifest.streamingAddons && manifest.streamingAddons[0]);
     return url.replace(/\/manifest\.json$/, "").replace(/\/$/, "");
   }
 
