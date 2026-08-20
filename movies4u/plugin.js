@@ -65,7 +65,7 @@
 
     "use strict";
 
-    var DEFAULT_BASE_URL = "https://new2.movies4u.style";
+    var DEFAULT_BASE_URL = "https://new4.movies4u.clinic";
     var DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
     var TMDB_WORKER_API = "https://api.themoviedb.org/3";
     var TMDB_FALLBACK_API = "https://wild-surf-4a0d.phisher1.workers.dev";
@@ -82,13 +82,31 @@
     var CACHE_TTL = 300000;
 
     var MAIN_PAGE_SECTIONS = [
-        { path: "", title: "Trending" },
-        { path: "category/bollywood-movies/", title: "BollyWood" },
-        { path: "category/hollywood-movies/", title: "HollyWood" },
-        { path: "category/web-series/", title: "WEB-Series" },
+        { path: "", title: "Home" },
+        { path: "category/bollywood-movies/", title: "Bollywood Movies" },
+        { path: "category/hollywood-movies/", title: "Hollywood Movies" },
+        { path: "category/hindi-dubbed-movies/", title: "Hindi Dubbed" },
+        { path: "category/dual-audio/", title: "Dual Audio" },
+        { path: "category/web-series/", title: "Web Series" },
+        { path: "category/south-hindi-movies/", title: "South Hindi Movies" },
         { path: "category/anime/", title: "Anime / Animation" },
         { path: "category/k-drama/", title: "K-Drama" },
-        { path: "category/south-hindi-movies/", title: "South Hindi Movies" }
+        { path: "category/korean/", title: "Korean" },
+        { path: "category/tamil/", title: "Tamil" },
+        { path: "category/telugu/", title: "Telugu" },
+        { path: "category/malayalam/", title: "Malayalam" },
+        { path: "category/kannada/", title: "Kannada" },
+        { path: "category/punjabi/", title: "Punjabi" },
+        { path: "category/marathi/", title: "Marathi" },
+        { path: "category/bengali/", title: "Bengali" },
+        { path: "category/english-movies/", title: "English Movies" },
+        { path: "category/action/", title: "Action" },
+        { path: "category/horror/", title: "Horror" },
+        { path: "category/comedy/", title: "Comedy" },
+        { path: "category/drama/", title: "Drama" },
+        { path: "category/thriller/", title: "Thriller" },
+        { path: "category/romance/", title: "Romance" },
+        { path: "category/18-adult/", title: "18+ Adult" }
     ];
 
     function toErrorMessage(error) {
@@ -181,21 +199,23 @@
     }
 
     function absoluteUrl(base, path) {
-        if (!path) return String(base || "");
+        var cleanBase = String(base || "").trim();
+        var cleanPath = String(path || "").trim();
+        if (!cleanPath) return cleanBase;
         try {
-            return new URL(path, base).toString();
+            return new URL(cleanPath, cleanBase).toString();
         } catch (_) {
-            return String(path || "");
+            return cleanPath;
         }
     }
 
     function normalizeBaseUrl(url) {
-        return String(url || "").replace(/\/+$/g, "");
+        return String(url || "").trim().replace(/\/+$/g, "");
     }
 
     function baseOrigin(url) {
         try {
-            var parsed = new URL(url);
+            var parsed = new URL(String(url || "").trim());
             return parsed.protocol + "//" + parsed.host;
         } catch (_) {
             return "";
@@ -203,11 +223,8 @@
     }
 
     function decodeQueryParam(url, name) {
-        try {
-            return new URL(url).searchParams.get(name) || "";
-        } catch (_) {
-            return "";
-        }
+        var match = String(url || "").match(new RegExp("[?&]" + escapeRegExp(name) + "=([^&#]*)", "i"));
+        return match ? decodeURIComponent(match[1].replace(/\+/g, " ")) : "";
     }
 
     function safeDecodeURIComponent(value) {
@@ -292,6 +309,7 @@
     }
 
     function request(url, options) {
+        url = String(url || "").trim();
         options = options || {};
         var method = options.method || "GET";
         var headers = options.headers || {};
@@ -488,15 +506,6 @@
         return out;
     }
 
-    function escapeRegExp(string) {
-        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    }
-
-    function decodeQueryParam(url, name) {
-        var match = String(url || "").match(new RegExp("[?&]" + escapeRegExp(name) + "=([^&#]*)", "i"));
-        return match ? decodeURIComponent(match[1].replace(/\+/g, " ")) : "";
-    }
-
     function resolveDynamicJsHrefs(html) {
         var mappings = {};
         var elementHrefRegex = /document\.getElementById\(\s*["']([^"']+)["']\s*\)\.href\s*=\s*([a-zA-Z0-9_$]+)/g;
@@ -528,16 +537,22 @@
             /<img\b[^>]*src=["']([^"']+)["']/i,
             /<img\b[^>]*data-src=["']([^"']+)["']/i
         ]);
-        return img ? absoluteUrl(base, img) : "";
+        if (!img) return "";
+        var url = absoluteUrl(base, img);
+        return url.replace(/\/w\d+\//i, "/w500/");
     }
 
     function getMainUrl() {
         if (domainCache) return Promise.resolve(domainCache);
 
+        var manifestBase = (typeof manifest !== "undefined" && manifest && manifest.baseUrl)
+            ? manifest.baseUrl
+            : (runtimeManifest && runtimeManifest.baseUrl);
+
         return getJson(DOMAINS_URL, defaultHeaders()).catch(function () {
             return {};
         }).then(function (json) {
-            var domain = (json && json.movies4u) || DEFAULT_BASE_URL;
+            var domain = (json && json.movies4u) || manifestBase || DEFAULT_BASE_URL;
             domainCache = normalizeBaseUrl(domain);
             return domainCache;
         });
@@ -554,16 +569,26 @@
         });
     }
 
+    function getCardQuality(block, rawTitle) {
+        var label = firstMatch(block, [
+            /<span\b[^>]*class=["'][^"']*video-label[^"']*["'][^>]*>([\s\S]*?)<\/span>/i
+        ]);
+        if (label) return trim(label);
+        return getSearchQuality(rawTitle);
+    }
+
     function parseSearchCard(block, base, defaultType) {
         var href = firstMatch(block, [
             /<h3\b[^>]*>\s*<a\b[^>]*href=["']([^"']+)["']/i,
-            /<h3\b[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>\s*<a\b[^>]*href=["']([^"']+)["']/i
+            /<h3\b[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>\s*<a\b[^>]*href=["']([^"']+)["']/i,
+            /<a\b[^>]*class=["'][^"']*post-thumbnail[^"']*["'][^>]*href=["']([^"']+)["']/i
         ]);
         if (!href) return null;
 
         var rawTitle = firstMatch(block, [
             /<h3\b[^>]*>\s*<a\b[^>]*>([\s\S]*?)<\/a>/i,
-            /<h3\b[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>\s*<a\b[^>]*>([\s\S]*?)<\/a>/i
+            /<h3\b[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>\s*<a\b[^>]*>([\s\S]*?)<\/a>/i,
+            /<a\b[^>]*class=["'][^"']*post-thumbnail[^"']*["'][^>]*aria-label=["']([^"']+)["']/i
         ]);
         rawTitle = stripTags(rawTitle);
         if (!rawTitle) return null;
@@ -581,7 +606,7 @@
             url: absoluteUrl(base, href),
             posterUrl: getImageFromBlock(block, base),
             type: defaultType || inferTypeFromTitle(rawTitle),
-            quality: getSearchQuality(rawTitle),
+            quality: getCardQuality(block, rawTitle),
             headers: defaultHeaders({ "Referer": base + "/" })
         });
     }
@@ -596,11 +621,13 @@
         return extractBlocks(html, "article").map(function (block) {
             var href = firstMatch(block, [
                 /<h3\b[^>]*>\s*<a\b[^>]*href=["']([^"']+)["']/i,
-                /<h2\b[^>]*>\s*<a\b[^>]*href=["']([^"']+)["']/i
+                /<h2\b[^>]*>\s*<a\b[^>]*href=["']([^"']+)["']/i,
+                /<a\b[^>]*class=["'][^"']*post-thumbnail[^"']*["'][^>]*href=["']([^"']+)["']/i
             ]);
             var rawTitle = stripTags(firstMatch(block, [
                 /<h3\b[^>]*>\s*<a\b[^>]*>([\s\S]*?)<\/a>/i,
-                /<h2\b[^>]*>\s*<a\b[^>]*>([\s\S]*?)<\/a>/i
+                /<h2\b[^>]*>\s*<a\b[^>]*>([\s\S]*?)<\/a>/i,
+                /<a\b[^>]*class=["'][^"']*post-thumbnail[^"']*["'][^>]*aria-label=["']([^"']+)["']/i
             ]));
             if (!href || !rawTitle) return null;
 
@@ -616,8 +643,8 @@
                 url: absoluteUrl(base, href),
                 posterUrl: getImageFromBlock(block, base),
                 type: inferTypeFromTitle(rawTitle),
-                quality: getSearchQuality(rawTitle),
-                headers: defaultHeaders()
+                quality: getCardQuality(block, rawTitle),
+                headers: defaultHeaders({ "Referer": base + "/" })
             });
         }).filter(Boolean);
     }
@@ -852,9 +879,11 @@
     function normalizeTmdbTitle(value) {
         return String(value || "")
             .toLowerCase()
+            .replace(/\[[^\]]*\]/g, " ")
+            .replace(/\([^\)]*\)/g, " ")
             .replace(/&/g, "and")
             .replace(/[^a-z0-9]+/g, " ")
-            .replace(/\bseason\s*\d+\b/g, " ")
+            .replace(/\b(?:season\s*\d+|episode\s*\d+|ep\s*\d+|added|web\s*dl|bluray|hindi|org|dual|multi|audio|complete|movie|download)\b/gi, " ")
             .replace(/\s+/g, " ")
             .trim();
     }
@@ -1034,7 +1063,7 @@
 
     function buildStreamResult(url, source, headers, quality) {
         return new StreamResult({
-            url: url,
+            url: String(url || "").trim(),
             source: quality ? (source + " [" + quality + "p]") : source,
             quality: quality || undefined,
             headers: headers || {}
@@ -1823,17 +1852,17 @@
     }
 
     async function httpParallelGet(requests) {
-        var items = Array.isArray(requests) ? requests.filter(function (item) { return item && item.url; }) : [];
+        var items = Array.isArray(requests) ? requests.filter(function (item) { return item && item.url; }).map(function (item) {
+            return {
+                method: item.method || "GET",
+                url: String(item.url || "").trim(),
+                headers: item.headers || defaultHeaders()
+            };
+        }) : [];
         if (!items.length) return [];
         if (typeof http_parallel === "function") {
             try {
-                var parallelRes = await http_parallel(items.map(function (item) {
-                    return {
-                        method: "GET",
-                        url: item.url,
-                        headers: item.headers || defaultHeaders()
-                    };
-                }));
+                var parallelRes = await http_parallel(items);
                 return items.map(function (item, index) {
                     var res = parallelRes && parallelRes[index];
                     return {
@@ -1846,7 +1875,7 @@
             } catch (_) {}
         }
         return await Promise.all(items.map(function (item) {
-            return request(item.url, { headers: item.headers || defaultHeaders(), timeout: 15000 }).catch(function () {
+            return request(item.url, { headers: item.headers, timeout: 15000 }).catch(function () {
                 return { status: 599, body: "", headers: {}, url: item.url };
             });
         }));
@@ -1885,7 +1914,7 @@
                 var searchReqs = [];
                 for (var t = 0; t < trendingItems.length; t++) {
                     var item = trendingItems[t];
-                    var rawTitle = trim(String(item.title || "").split("(")[0]);
+                    var rawTitle = normalizeTmdbTitle(item.title) || trim(String(item.title || "").split("(")[0].split("[")[0]);
                     var yearMatch = String(item.title || "").match(/\((\d{4})\)/);
                     var searchYear = yearMatch ? yearMatch[1] : "";
                     var mediaType = item.type === "series" ? "tv" : "movie";
@@ -1941,6 +1970,7 @@
                             posterUrl: item.posterUrl,
                             type: item.type,
                             quality: item.quality,
+                            headers: item.headers,
                             logoUrl: meta.logoUrl,
                             bannerUrl: meta.bannerUrl,
                             genres: meta.genres,
@@ -1973,7 +2003,7 @@
     async function search(query, cb) {
         try {
             var mainUrl = await getMainUrl();
-            var url = mainUrl + "/?s=" + encodeURIComponent(query || "");
+            var url = mainUrl + "/?s=" + encodeURIComponent(trim(query));
             var html = await getText(url, defaultHeaders());
             var results = parseSearchResultsKotlin(html, mainUrl);
             if (!results.length) {
@@ -1992,7 +2022,7 @@
 
     async function load(url, cb) {
         try {
-            var sourceUrl = String(url || "");
+            var sourceUrl = String(url || "").trim();
             var html = await getText(sourceUrl, defaultHeaders());
 
             var rawOgTitle = extractMetaContent(html, "og:title") || "Unknown Title";
@@ -2199,11 +2229,12 @@
                 };
             }
             if (!payload || !payload.links || !payload.links.length) {
-                if (/^https?:\/\//i.test(String(url || ""))) {
-                    var html = await getText(String(url), defaultHeaders());
+                var cleanUrl = String(url || "").trim();
+                if (/^https?:\/\//i.test(cleanUrl)) {
+                    var html = await getText(cleanUrl, defaultHeaders());
                     payload = {
-                        sourceUrl: String(url),
-                        links: extractDownloadLinks(html, baseOrigin(String(url))),
+                        sourceUrl: cleanUrl,
+                        links: extractDownloadLinks(html, baseOrigin(cleanUrl)),
                         type: "movie",
                         title: ""
                     };
