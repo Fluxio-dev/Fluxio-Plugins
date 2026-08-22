@@ -278,6 +278,32 @@
         throw new Error('Quick legacy verify failed');
     }
 
+    function extractProbeUrl(html, addhash) {
+        // Strip JS comments so disabled or commented-out URLs are ignored (one-line comment)
+        const cleanHtml = String(html || '').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+        const varMap = {};
+        const varRegex = /(?:var|let|const)\s+([a-zA-Z0-9_$]+)\s*=\s*["']([^"']+)["']/g;
+        let vm;
+        while ((vm = varRegex.exec(cleanHtml)) !== null) {
+            varMap[vm[1]] = vm[2];
+        }
+        const openMatch = cleanHtml.match(/window\.(?:open|location)\s*(?:=\s*|\(\s*)([^,\)\n;]+)/i);
+        if (openMatch) {
+            let resolved = openMatch[1].trim()
+                .replace(/addhash\d*/g, encodeURIComponent(addhash))
+                .replace(/Math\.random\(\)/g, String(Math.random()))
+                .replace(/([a-zA-Z0-9_$]+)/g, function(m, k) { return varMap[k] !== undefined ? varMap[k] : m; })
+                .replace(/['"\s+]/g, '');
+            if (/^https?:\/\//i.test(resolved)) return resolved;
+        }
+        const qMatch = cleanHtml.match(/var\s+([a-zA-Z0-9_$]*Qury[a-zA-Z0-9_$]*|[a-zA-Z0-9_$]*query[a-zA-Z0-9_$]*)\s*=\s*["']([^"']+)["']/i);
+        const vMatch = cleanHtml.match(/var\s+([a-zA-Z0-9_$]*Vsite[a-zA-Z0-9_$]*|[a-zA-Z0-9_$]*site[a-zA-Z0-9_$]*)\s*=\s*["']([^"']+)["']/i);
+        const qury = qMatch ? qMatch[2] : 'hee5';
+        const vsite = vMatch ? vMatch[2] : 'userver';
+        const domain = BASE_URL.replace(/^https?:\/\/(?:www\.)?/i, '');
+        return 'https://' + vsite + '.' + domain + '/?' + encodeURIComponent(qury) + '=' + encodeURIComponent(addhash) + '&a=y&t=' + Math.random();
+    }
+
     function runBackgroundBypass(provider) {
         if (backgroundBypassPromise) return backgroundBypassPromise;
         backgroundBypassPromise = (async () => {
@@ -292,17 +318,22 @@
                 });
                 var cookieJar = collectCookies(challengeRes.headers);
                 const html = String(challengeRes.body || '');
-                const am = html.match(/<body[^>]*data-addhash="([^"]+)"/i);
+                const am = html.match(/<body[^>]*data-(?:add)?hash(?:2)?="([^"]+)"/i) || html.match(/data-addhash="([^"]+)"/i);
                 const addhash = am ? am[1] : '';
                 if (!addhash) throw new Error('Failed to extract addhash');
                 
                 var userverHeaders = {};
                 if (cookieJar) userverHeaders['Cookie'] = cookieJar;
                 
-                const parts = addhash.split('::');
-                const ts = (parts.length > 2) ? parts[2] : Math.floor(Date.now() / 1000);
-                logPlugin('BYPASS', 'Executing userver request for addhash activation...');
-                await http_get('https://userver.net52.cc/?jjoii=' + encodeURIComponent(addhash) + '&a=y&t=' + ts, userverHeaders);
+                // Dynamically resolve adserver trigger URL from challenge page scripts (one-line comment)
+                const probeUrl = extractProbeUrl(html, addhash);
+
+                logPlugin('BYPASS', 'Executing userver request for addhash activation: ' + probeUrl);
+                await http_get(probeUrl, Object.assign({ 'User-Agent': BYPASS_UA }, userverHeaders));
+
+                const cleanHtml = html.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+                const verifyMatch = cleanHtml.match(/url\s*:\s*["']([^"']*verify\d*\.php)["']/i);
+                const verifyPath = verifyMatch ? verifyMatch[1] : '/mobile/verify2.php';
 
                 const verifyHeaders = {
                     'User-Agent': BYPASS_UA,
@@ -313,14 +344,18 @@
                 if (cookieJar) verifyHeaders['Cookie'] = cookieJar;
                 const verifyBody = 'verify=' + encodeURIComponent(addhash);
                 
-                logPlugin('BYPASS', 'Polling mobile/verify2.php...');
-                for (let attempt = 0; attempt < 6; attempt++) {
+                // Start polling at 10s with 3s intervals up to 60s deadline to adapt to server timing changes (one-line comment)
+                logPlugin('BYPASS', 'Waiting 10s initial delay before polling ' + verifyPath + '...');
+                await new Promise(function (r) { return setTimeout(r, 10000); });
+
+                logPlugin('BYPASS', 'Polling ' + verifyPath + ' (up to 60s window)...');
+                for (let attempt = 0; attempt < 18; attempt++) {
                     if (attempt > 0) {
-                        logPlugin('BYPASS', 'Polling attempt ' + attempt + ' did not return token. Waiting 8s...');
-                        await new Promise(function (r) { return setTimeout(r, 8000); });
+                        logPlugin('BYPASS', 'Polling attempt ' + (attempt + 1) + ' did not return token. Waiting 3s...');
+                        await new Promise(function (r) { return setTimeout(r, 3000); });
                     }
                     try {
-                        const verifyRes = await http_post(BASE_URL + '/mobile/verify2.php', verifyHeaders, verifyBody);
+                        const verifyRes = await http_post(BASE_URL + verifyPath, verifyHeaders, verifyBody);
                         const rawHeader = (verifyRes.headers && (verifyRes.headers['set-cookie'] || verifyRes.headers['Set-Cookie'])) || '';
                         const hash = parseSetCookie(rawHeader);
                         if (hash) {
