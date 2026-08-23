@@ -113,14 +113,14 @@
                     const tagNameMatch = token.match(/^<([a-z0-9]+)/i);
                     const tag = tagNameMatch ? tagNameMatch[1].toLowerCase() : "unknown";
                     const selfClosing = token.endsWith("/>") || /^(?:img|br|hr|input|meta|link)$/i.test(tag);
-                    
+
                     const attrs = {};
                     const attrRe = /([a-z0-9-]+)=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
                     let am;
                     while ((am = attrRe.exec(token))) {
                         attrs[am[1].toLowerCase()] = am[2] || am[3] || am[4];
                     }
-                    
+
                     const node = new JNode(tag, attrs, current);
                     current.children.push(node);
                     if (!selfClosing) {
@@ -518,13 +518,13 @@
             const img = card.find("img");
             if (img) poster = img.attr("data-src") || img.attr("src") || "";
             poster = fixUrl(poster);
-            
+
             const type = url.includes("-series-") || url.includes("/series/") ? "series" : "movie";
-            
+
             if (url) {
                 items.push(new MultimediaItem({
-                    title, 
-                    url, 
+                    title,
+                    url,
                     posterUrl: poster,
                     type: type
                 }));
@@ -540,7 +540,7 @@
                 { title: "Movies", url: "category/movies/" },
                 { title: "Series", url: "category/series/" }
             ];
-            
+
             const results = {};
             const pages = await fetchMany(mainpage.map(cat => ({
                 url: `${manifest.baseUrl}/${cat.url}`,
@@ -603,7 +603,7 @@
         try {
             const res = await http_get(url, CommonHeaders);
             if (!res || !res.body) return cb({ success: false, errorCode: "SITE_OFFLINE", message: "Failed to load details" });
-            
+
             const doc = new JsoupLite(res.body);
             const title = cleanText(doc.find("h1.page-title")?.textContent() || doc.find("h1")?.textContent()).split("(")[0].trim() || "Unknown";
             const poster = fixUrl(readMeta(doc, "property", "og:image"));
@@ -633,9 +633,9 @@
 
             const descriptionEl = doc.find("div.content-section p.mt-4") || doc.find(".movie-description") || doc.select(".content-main p").find(p => p.textContent().length > 50);
             let description = descriptionEl ? stripHTML(descriptionEl.textContent()) : "";
-            
+
             if (!description || description.length < 10) {
-                doc.select("meta").forEach(m => { 
+                doc.select("meta").forEach(m => {
                     if (m.attr("name") === "description" || m.attr("property") === "og:description") {
                         const content = m.attr("content");
                         if (content && content.length > description.length) description = unescapeHTML(content);
@@ -687,18 +687,18 @@
                     }
                     if (fallbackLinks.length > 0) movieGroups.push({ name: "Direct", links: fallbackLinks });
                 }
-                
+
                 cb({
                     success: true,
                     data: new MultimediaItem({
                         ...commonData,
                         type: "movie",
-                        episodes: [new Episode({ 
-                            name: "Full Movie", 
-                            season: 1, 
-                            episode: 1, 
-                            url: JSON.stringify(movieGroups), 
-                            posterUrl: fixedPoster 
+                        episodes: [new Episode({
+                            name: "Full Movie",
+                            season: 1,
+                            episode: 1,
+                            url: JSON.stringify(movieGroups),
+                            posterUrl: fixedPoster
                         })]
                     })
                 });
@@ -803,7 +803,7 @@
                         }
                     });
                 }
-                
+
                 cb({ success: true, data: new MultimediaItem({ ...commonData, type: "series", episodes }) });
             }
         } catch (e) {

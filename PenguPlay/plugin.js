@@ -1,29 +1,29 @@
 (function () {
   "use strict";
 
-  // Get home view base URL from manifest catalogueAddons (one-line comment)
+  // Get home view base URL from manifest catalogueAddons
   function getHomeBase() {
     const url = (typeof manifest !== "undefined" && manifest && manifest.catalogueAddons && manifest.catalogueAddons[0]);
     return url.replace(/\/manifest\.json$/, "").replace(/\/$/, "");
   }
 
-  // Get streaming base URL from manifest streamingAddons (one-line comment)
+  // Get streaming base URL from manifest streamingAddons
   function getStreamBase() {
     const url = (typeof manifest !== "undefined" && manifest && manifest.streamingAddons && manifest.streamingAddons[0]);
     return url.replace(/\/manifest\.json$/, "").replace(/\/$/, "");
   }
 
-  // Get TMDB base URL from manifest (one-line comment)
+  // Get TMDB base URL from manifest
   function getTmdbBase() {
     return (typeof manifest !== "undefined" && manifest && manifest.tmdbBaseUrl) || "https://api.tmdb.org";
   }
 
-  // Get TMDB API key from manifest (one-line comment)
+  // Get TMDB API key from manifest
   function getTmdbKey() {
     return (typeof manifest !== "undefined" && manifest && manifest.apiKey) || "";
   }
 
-  // Standard catalogs configuration for home view (one-line comment)
+  // Standard catalogs configuration for home view
   const CATALOGS = [
     { type: "movie", id: "popular-movie-global", name: "Popular Movies - Top 10 Global" },
     { type: "series", id: "popular-series-global", name: "Popular TV - Top 10 Global" },
@@ -37,7 +37,7 @@
     { type: "movie", id: "ranker-rk-best-scifi-movies-generic", name: "Ranker - Best Sci-Fi Movies" }
   ];
 
-  // Helper to fetch and parse JSON from URL (one-line comment)
+  // Helper to fetch and parse JSON from URL
   async function fetchJson(url) {
     const res = await http_get(url, {});
     if (res && res.body) {
@@ -46,7 +46,7 @@
     throw new Error("HTTP request failed for: " + url);
   }
 
-  // Helper to query TMDB API (one-line comment)
+  // Helper to query TMDB API
   async function fetchTmdb(path, params) {
     const api = getTmdbBase() + "/3";
     const key = getTmdbKey();
@@ -60,7 +60,7 @@
     return fetchJson(url);
   }
 
-  // Helper for parallel JSON fetching using httpBatch or Promise.all (one-line comment)
+  // Helper for parallel JSON fetching using httpBatch or Promise.all
   async function fetchJsonBatch(urls) {
     if (typeof httpBatch === "function") {
       const results = await httpBatch(urls);
@@ -77,7 +77,7 @@
     }));
   }
 
-  // Maps Stremio meta object to SkyStream MultimediaItem (one-line comment)
+  // Maps Stremio meta object to SkyStream MultimediaItem
   function toMultimediaItem(m, fallbackType) {
     if (!m || !m.id) return null;
     const type = m.type || fallbackType || "movie";
@@ -92,7 +92,7 @@
     });
   }
 
-  // Grabs home page data by batch-fetching paged catalog URLs (one-line comment)
+  // Grabs home page data by batch-fetching paged catalog URLs
   async function getHome(cb, page) {
     try {
       const pageNum = parseInt(page) || 1;
@@ -120,7 +120,7 @@
     }
   }
 
-  // Searches movies and series catalogs via TMDB API (one-line comment)
+  // Searches movies and series catalogs via TMDB API
   async function search(query, cb) {
     try {
       const q = encodeURIComponent(query);
@@ -156,7 +156,7 @@
     }
   }
 
-  // Loads metadata and parses episode structure for selected item (one-line comment)
+  // Loads metadata and parses episode structure for selected item
   async function load(url, cb) {
     try {
       const parts = url.split(":");
@@ -167,7 +167,7 @@
       if (id === "tmdb") {
         tmdbId = parts[2];
       } else {
-        // Resolve TMDB ID from IMDb ID (one-line comment)
+        // Resolve TMDB ID from IMDb ID
         const findData = await fetchTmdb("/find/" + id, "external_source=imdb_id");
         const results = type === "series" ? (findData.tv_results || []) : (findData.movie_results || []);
         if (results.length > 0) {
@@ -178,15 +178,15 @@
       }
 
       const ep = type === "series" ? "tv" : "movie";
-      // Fetch details from TMDB with external IDs, credits and videos (one-line comment)
+      // Fetch details from TMDB with external IDs, credits and videos
       const details = await fetchTmdb("/" + ep + "/" + tmdbId, "append_to_response=external_ids,credits,videos");
       if (!details) throw new Error("Metadata details not found");
 
       const imdbId = (details.external_ids && details.external_ids.imdb_id) || id;
       const logoUrl = imdbId ? "https://live.metahub.space/logo/medium/" + imdbId + "/img" : "";
       const genres = Array.isArray(details.genres) ? details.genres.map(g => g.name) : [];
-      
-      // Parse credits to map cast actors (one-line comment)
+
+      // Parse credits to map cast actors
       const tmdbCast = (details.credits && details.credits.cast) || [];
       const cast = tmdbCast.slice(0, 15).map(c => {
         const member = {
@@ -197,7 +197,7 @@
         return typeof Actor !== "undefined" ? new Actor(member) : member;
       });
 
-      // Parse videos to map trailers (one-line comment)
+      // Parse videos to map trailers
       const tmdbVideos = (details.videos && details.videos.results) || [];
       const trailers = [];
       tmdbVideos.forEach(v => {
@@ -221,15 +221,15 @@
             number: s.season_number,
             id: String(s.season_number)
           }));
-        
-        // Determine active season to load (one-line comment)
+
+        // Determine active season to load
         const targetSeasonId = (typeof globalThis !== "undefined" && globalThis._targetSeasonId) || "";
         let targetSeasonNumber = parseInt(targetSeasonId, 10);
         if (isNaN(targetSeasonNumber) || targetSeasonNumber <= 0) {
           targetSeasonNumber = seasonsList.length > 0 ? seasonsList[0].number : 1;
         }
 
-        // Fetch episodes of active season only (one-line comment)
+        // Fetch episodes of active season only
         const sd = await fetchTmdb("/tv/" + tmdbId + "/season/" + targetSeasonNumber);
         if (sd && Array.isArray(sd.episodes)) {
           sd.episodes.forEach(ep => {
@@ -277,7 +277,7 @@
     }
   }
 
-  // Fetches and formats stream results from PenguPlay addon (one-line comment)
+  // Fetches and formats stream results from PenguPlay addon
   async function loadStreams(url, cb) {
     try {
       const parts = url.split(":");
@@ -303,7 +303,7 @@
         const headers = (st.behaviorHints && st.behaviorHints.proxyHeaders && st.behaviorHints.proxyHeaders.request) || {};
         const finalUrl = st.url;
 
-        // Parse size from description, title, filename or videoSize (one-line comment)
+        // Parse size from description, title, filename or videoSize
         const desc = st.description || st.title || "";
         const filename = (st.behaviorHints && st.behaviorHints.filename) || "";
         const sizeSearchText = desc + " " + filename;
@@ -322,7 +322,7 @@
           }
         }
 
-        // Parse quality name and value from quality property or name/desc/filename (one-line comment)
+        // Parse quality name and value from quality property or name/desc/filename
         const nameText = st.name || "";
         const combinedText = nameText + " " + desc + " " + filename;
         let quality = "";
@@ -349,7 +349,7 @@
           quality = "Auto";
         }
 
-        // Clean name utility (one-line comment)
+        // Clean name utility
         const cleanName = (str) => {
           if (!str) return "";
           const lower = str.toLowerCase();
@@ -360,7 +360,7 @@
           return str;
         };
 
-        // Parse server and provider from bingeGroup or fallback to name/desc (one-line comment)
+        // Parse server and provider from bingeGroup or fallback to name/desc
         let server = "";
         let provider = "";
         const binge = (st.behaviorHints && st.behaviorHints.bingeGroup) || "";
@@ -410,7 +410,7 @@
         server = cleanName(server);
         provider = cleanName(provider);
 
-        // Format name as SIZE | QUALITY | Provider | Server (one-line comment)
+        // Format name as SIZE | QUALITY | Provider | Server
         const displayParts = [];
         if (size) displayParts.push(size);
         if (quality) displayParts.push(quality);
@@ -444,7 +444,7 @@
     }
   }
 
-  // Register endpoints in global scope (one-line comment)
+  // Register endpoints in global scope
   let g = typeof globalThis !== "undefined" ? globalThis : null;
   if (!g && typeof self !== "undefined") g = self;
   if (!g && typeof window !== "undefined") g = window;

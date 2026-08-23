@@ -84,7 +84,7 @@
         'PRIME VIDEO': {
             id: 'PRIME VIDEO',
             ott: 'pv',
-            // Align PRIME VIDEO endpoint paths with the correct NetMirror /pv/ paths (one-line comment)
+            // Align PRIME VIDEO endpoint paths with the correct NetMirror /pv/ paths
             baseUrl: BASE_URL,
             playUrl: PLAY_URL,
             homePath: '/pv/homepage.php',
@@ -227,7 +227,7 @@
     }
 
     let isNewToken = false;
-    // Track isNewToken state and use backgroundBypassPromise to await new verify token for streams (one-line comment)
+    // Track isNewToken state and use backgroundBypassPromise to await new verify token for streams
     try {
         cachedCookie = localStorage.getItem('cnc_cached_cookie') || '';
         lastBypassTime = parseInt(localStorage.getItem('cnc_last_bypass_time') || '0', 10);
@@ -237,7 +237,7 @@
     let isRefreshing = false;
     let backgroundBypassPromise = null;
 
-    // Add logPlugin instrumentation throughout the bypass and background verification functions (one-line comment)
+    // Add logPlugin instrumentation throughout the bypass and background verification functions
     setTimeout(function() {
         if (cachedCookie && isNewToken && (Date.now() - lastBypassTime <= 72000000)) {
             logPlugin('BYPASS', 'Startup check: Cached premium token is fresh (' + Math.round((Date.now() - lastBypassTime) / 60000) + 'm old). Skipping background bypass.');
@@ -279,7 +279,7 @@
     }
 
     function extractProbeUrl(html, addhash) {
-        // Strip JS comments so disabled or commented-out URLs are ignored (one-line comment)
+        // Strip JS comments so disabled or commented-out URLs are ignored
         const cleanHtml = String(html || '').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
         const varMap = {};
         const varRegex = /(?:var|let|const)\s+([a-zA-Z0-9_$]+)\s*=\s*["']([^"']+)["']/g;
@@ -321,11 +321,11 @@
                 const am = html.match(/<body[^>]*data-(?:add)?hash(?:2)?="([^"]+)"/i) || html.match(/data-addhash="([^"]+)"/i);
                 const addhash = am ? am[1] : '';
                 if (!addhash) throw new Error('Failed to extract addhash');
-                
+
                 var userverHeaders = {};
                 if (cookieJar) userverHeaders['Cookie'] = cookieJar;
-                
-                // Dynamically resolve adserver trigger URL from challenge page scripts (one-line comment)
+
+                // Dynamically resolve adserver trigger URL from challenge page scripts
                 const probeUrl = extractProbeUrl(html, addhash);
 
                 logPlugin('BYPASS', 'Executing userver request for addhash activation: ' + probeUrl);
@@ -343,8 +343,8 @@
                 };
                 if (cookieJar) verifyHeaders['Cookie'] = cookieJar;
                 const verifyBody = 'verify=' + encodeURIComponent(addhash);
-                
-                // Start polling at 10s with 3s intervals up to 60s deadline to adapt to server timing changes (one-line comment)
+
+                // Start polling at 10s with 3s intervals up to 60s deadline to adapt to server timing changes
                 logPlugin('BYPASS', 'Waiting 10s initial delay before polling ' + verifyPath + '...');
                 await new Promise(function (r) { return setTimeout(r, 10000); });
 
@@ -458,7 +458,7 @@
 
     function parseTrayRows(html, provider) {
         const sections = {};
-        // Skip spotlight billboard buttons with data-post in parseTrayRows (one-line comment)
+        // Skip spotlight billboard buttons with data-post in parseTrayRows
         const globalRegex = /<(h2|span|div|p)[^>]*class="[^"]*(tray-title|mobile-tray-title|title|tray-title-container)[^"]*"[^>]*>([\s\S]*?)<\/\1>|<[^>]*data-post="([^"]+)"/ig;
 
         let currentTitle = 'Trending';
@@ -529,7 +529,7 @@
         return txt.indexOf('lolomoRow') !== -1 || txt.indexOf('data-post') !== -1 || txt.indexOf('tray-title') !== -1 || txt.indexOf('mobile-tray-title') !== -1;
     }
 
-    // Add helper isResponseValid and retry flow in getHome to handle token invalidation or IP changes (one-line comment)
+    // Add helper isResponseValid and retry flow in getHome to handle token invalidation or IP changes
     async function getHome(cb) {
         try {
             const provider = cfg();
@@ -567,7 +567,7 @@
                         return new MultimediaItem({
                             title: ' ',
                             url: JSON.stringify({ provider: provider.id, id: id }),
-                            // Wrap Prime Video homepage posters in proxiedImage helper (one-line comment)
+                            // Wrap Prime Video homepage posters in proxiedImage helper
                             posterUrl: proxiedImage(provider.poster(id)),
                             type: 'movie'
                         });
@@ -637,7 +637,7 @@
             const episodes = [];
 
             const seasonsList = [];
-            // Force Season 1 as default and sort seasonsList ascending on initial load (one-line comment)
+            // Force Season 1 as default and sort seasonsList ascending on initial load
             if (Array.isArray(data.season)) {
                 data.season.forEach(function (s, idx) {
                     if (s && s.id) {
@@ -694,7 +694,7 @@
                     description: clean(data.desc),
                     type: (episodes.length > 1 || seasonsList.length > 0) ? 'tvseries' : 'movie',
                     year: parseInt(data.year, 10) || undefined,
-                    // Pass cast and genre hints so the metadata resolver can disambiguate same-title shows (one-line comment)
+                    // Pass cast and genre hints so the metadata resolver can disambiguate same-title shows
                     cast: String(data.cast || '').split(',').map(function (n) { return new Actor({ name: clean(n) }); }).filter(function (a) { return a.name; }),
                     tags: String(data.genre || '').split(',').map(function (g) { return clean(g); }).filter(Boolean),
                     seasons: seasonsList.length > 0 ? seasonsList : undefined,
@@ -715,7 +715,7 @@
     ];
 
     async function buildRealPlaylist(provider, epId) {
-        // Real frames and audio are open on s12, so generate the playlist client-side with no premium token (one-line comment)
+        // Real frames and audio are open on s12, so generate the playlist client-side with no premium token
         const cdn = 'https://s12.freecdn32z.top';
         const base = cdn + '/files/' + encodeURIComponent(epId);
         const refHeaders = { Referer: 'https://net52.cc/pv/', 'User-Agent': COMMON_HEADERS['User-Agent'] };
@@ -746,7 +746,7 @@
             catch (_) { return false; }
         };
         let count = Math.ceil(audioDur / 3.0);
-        // Real variants are exactly 3s per frame, so video count = ceil(audioDur / 3), verified on the cheapest quality (one-line comment)
+        // Real variants are exactly 3s per frame, so video count = ceil(audioDur / 3), verified on the cheapest quality
         const probeQ = (await probe('720p', 0)) ? '720p' : '1080p';
         if (!(await probe(probeQ, count - 1)) || await probe(probeQ, count)) {
             for (let d = 1; d <= 8; d++) {
@@ -793,7 +793,7 @@
     async function loadPrimeStreams(provider, payload) {
         const out = [];
         try {
-            // Build a real playlist from the open s12 CDN data (no premium token needed) (one-line comment)
+            // Build a real playlist from the open s12 CDN data (no premium token needed)
             const realMaster = await buildRealPlaylist(provider, payload.id);
             if (realMaster) {
                 out.push(new StreamResult({
@@ -809,7 +809,7 @@
             }
         } catch (_) { /* fall back to playlist.php below */ }
 
-        // Enforce new verified token for prime stream extraction to avoid playback 403 errors (one-line comment)
+        // Enforce new verified token for prime stream extraction to avoid playback 403 errors
         const cookieStr = await cookieString(provider, true);
         const playlistUrl = provider.baseUrl + provider.playlistPath + '?id=' + encodeURIComponent(payload.id) + '&t=' + encodeURIComponent(payload.title || '') + '&tm=' + unixTs();
         const res = await http_get(playlistUrl, Object.assign({}, COMMON_HEADERS, { Referer: provider.baseUrl + '/home', Cookie: cookieStr, 'X-Requested-With': 'XMLHttpRequest' }));
@@ -837,7 +837,7 @@
     }
 
     async function loadMobilePlaylistStreams(provider, payload, playlistPath, ottOverride) {
-        // Enforce new verified token for mobile stream playlist extraction to avoid playback 403 errors (one-line comment)
+        // Enforce new verified token for mobile stream playlist extraction to avoid playback 403 errors
         const hash = await bypass(provider, true);
         const ott = ottOverride || provider.ott;
         let cookieStr = 't_hash_t=' + hash + '; ott=' + ott + '; hd=on';
@@ -908,7 +908,7 @@
 
             let results = [];
             try {
-                // Try CS3 direct HLS playlist extraction first (one-line comment)
+                // Try CS3 direct HLS playlist extraction first
                 if (provider.id === 'HOTSTAR' || provider.id === 'DISNEY PLUS') {
                     results = await loadMobilePlaylistStreams(provider, payload, '/mobile/hs/playlist.php', 'hs');
                 } else if (provider.id === 'NETFLIX') {

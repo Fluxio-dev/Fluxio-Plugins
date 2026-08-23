@@ -370,7 +370,7 @@
       qVal = 360;
     }
 
-    // Parse provider and server dynamically (one-line comment)
+    // Parse provider and server dynamically
     let provider = addonDisplayName;
     let server = "";
 
@@ -391,7 +391,7 @@
       }
     }
 
-    // Fallback to URL domain name if server not set (one-line comment)
+    // Fallback to URL domain name if server not set
     if (!server && url && url.indexOf("http") === 0) {
       try {
         const u = new URL(url);
@@ -470,7 +470,7 @@
       streamRes.subtitles = parseStreamSubtitles(stream);
     }
 
-    // Omit null/undefined keys (Dart compatibility) (one-line comment)
+    // Omit null/undefined keys (Dart compatibility)
     for (let k in streamRes) {
       if (streamRes[k] === null || streamRes[k] === undefined) delete streamRes[k];
     }
@@ -956,7 +956,7 @@
           const timer = setTimeout(() => {
             timedOut = true;
             resolve(null);
-          }, 10000); // 10s individual timeout (one-line comment)
+          }, 10000); // 10s individual timeout
 
           http_get(job.url, JSON_HEADERS)
             .then(resp => {
