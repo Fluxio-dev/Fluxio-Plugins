@@ -709,14 +709,6 @@
         }
     }
 
-    const REAL_AUDIO_TRACKS = [
-        ['ara', 'Arabic'], ['ces', 'Czech'], ['deu', 'German'], ['eng', 'English'],
-        ['spa', 'Spanish'], ['spa', 'Spanish'], ['fra', 'French'], ['fra', 'French'],
-        ['hin', 'Hindi'], ['hun', 'Hungarian'], ['ita', 'Italian'], ['jpn', 'Japanese'],
-        ['kan', 'Kannada'], ['mal', 'Malayalam'], ['pol', 'Polish'], ['por', 'Portuguese'],
-        ['tam', 'Tamil'], ['tel', 'Telugu'], ['tha', 'Thai'], ['tur', 'Turkish']
-    ];
-
     const CDN_CANDIDATES = [
         'https://s14.freecdn2.top',
         'https://s12.freecdn32z.top',
@@ -727,45 +719,92 @@
         'https://s20.freecdn4.top'
     ];
 
-    async function buildRealPlaylist(provider, epId) {
-        // Dynamically locate real audio tracks and video frames across active CDN hosts (one-line comment)
+    async function buildRealPlaylist(provider, epId, cookieStr) {
+        // Dynamically extract authentic audio tracks and real video streams across CDN candidates (one-line comment)
         const refHeaders = { Referer: 'https://net52.cc/pv/', 'User-Agent': COMMON_HEADERS['User-Agent'] };
-        let activeCdn = '';
-        let audioM3u8 = null;
+        let audioLines = [];
         let base = '';
-
-        for (let c = 0; c < CDN_CANDIDATES.length; c++) {
-            const testBase = CDN_CANDIDATES[c] + '/files/' + encodeURIComponent(epId);
-            for (let i = 0; i < 5; i++) {
-                const r = await http_get(testBase + '/a/' + i + '/' + i + '.m3u8', refHeaders);
-                if (r.status === 200 && String(r.body).indexOf('#EXTM3U') === 0) {
-                    activeCdn = CDN_CANDIDATES[c];
-                    base = testBase;
-                    audioM3u8 = r.body;
-                    break;
-                }
-            }
-            if (activeCdn) break;
-        }
-
-        if (!activeCdn || !audioM3u8) return '';
-
         let prefix = '';
         let audioDur = 0;
-        const audioLines = String(audioM3u8).split('\n');
-        for (let i = 0; i < audioLines.length; i++) {
-            const line = audioLines[i].trim();
-            if (line.indexOf('#EXTINF:') === 0) {
-                const sec = parseFloat(line.substring(8).split(',')[0]);
-                if (!isNaN(sec)) audioDur += sec;
-            } else if (line && line[0] !== '#' && !prefix) {
-                const m = line.match(/(\d+)_\d+\.js/);
-                if (m) prefix = m[1];
+
+        // Step 1: Extract authentic audio media descriptors from original master playlist (one-line comment)
+        try {
+            const plUrl = provider.baseUrl + provider.playlistPath + '?id=' + encodeURIComponent(epId) + '&t=title&tm=' + unixTs();
+            const plRes = await http_get(plUrl, Object.assign({}, COMMON_HEADERS, { Cookie: cookieStr || '', 'X-Requested-With': 'XMLHttpRequest' }));
+            const pl = parseJsonSafe(plRes.body, []);
+            if (pl[0] && pl[0].sources && pl[0].sources[0]) {
+                let m3u8Url = pl[0].sources[0].file;
+                if (!m3u8Url.startsWith('http')) m3u8Url = provider.playUrl + '/' + m3u8Url.replace(/^\/+/, '');
+                const mRes = await http_get(m3u8Url, Object.assign({}, refHeaders, { Cookie: cookieStr || '' }));
+                if (mRes.status === 200) {
+                    const rawLines = String(mRes.body || '').split('\n');
+                    const matchedAudio = rawLines.filter(function (l) { return l.indexOf('#EXT-X-MEDIA:TYPE=AUDIO') !== -1; });
+                    if (matchedAudio.length > 0) {
+                        audioLines = matchedAudio.map(function (l) { return l.trim(); });
+                        for (let a = 0; a < audioLines.length; a++) {
+                            const am = audioLines[a].match(/URI="([^"]+)"/);
+                            if (am && am[1] && am[1].startsWith('http')) {
+                                base = am[1].split('/a/')[0];
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_) {}
+
+        // Step 2: Fallback probe across known CDNs if base not resolved from playlist (one-line comment)
+        if (!base) {
+            for (let c = 0; c < CDN_CANDIDATES.length; c++) {
+                const testBase = CDN_CANDIDATES[c] + '/files/' + encodeURIComponent(epId);
+                for (let i = 0; i < 3; i++) {
+                    const r = await http_get(testBase + '/a/' + i + '/' + i + '.m3u8', refHeaders);
+                    if (r.status === 200 && String(r.body).indexOf('#EXTM3U') === 0) {
+                        base = testBase;
+                        break;
+                    }
+                }
+                if (base) break;
+            }
+        }
+        if (!base) return '';
+
+        // Step 3: Extract real language list from post.php if original master playlist had no audio tags (one-line comment)
+        if (audioLines.length === 0) {
+            try {
+                const postUrl = provider.baseUrl + provider.postPath + '?id=' + encodeURIComponent(epId) + '&t=' + unixTs();
+                const pRes = await http_get(postUrl, Object.assign({}, refHeaders, { Cookie: cookieStr || '' }));
+                const pData = parseJsonSafe(pRes.body, {});
+                if (Array.isArray(pData.lang) && pData.lang.length > 0) {
+                    pData.lang.forEach(function (item, idx) {
+                        const isEng = String(item.s).toLowerCase() === 'eng';
+                        audioLines.push('#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aac",LANGUAGE="' + (item.s || 'und') + '",NAME="' + (item.l || item.s || 'Audio') + '",DEFAULT=' + (isEng ? 'YES' : 'NO') + ',URI="' + base + '/a/' + idx + '/' + idx + '.m3u8"');
+                    });
+                }
+            } catch (_) {}
+        }
+
+        // Step 4: Probe duration and prefix from active audio tracks (one-line comment)
+        for (let i = 0; i < 5; i++) {
+            const r = await http_get(base + '/a/' + i + '/' + i + '.m3u8', refHeaders);
+            if (r.status === 200 && String(r.body).indexOf('#EXTM3U') === 0) {
+                const lines = String(r.body).split('\n');
+                for (let j = 0; j < lines.length; j++) {
+                    const line = lines[j].trim();
+                    if (line.indexOf('#EXTINF:') === 0) {
+                        const sec = parseFloat(line.substring(8).split(',')[0]);
+                        if (!isNaN(sec)) audioDur += sec;
+                    } else if (line && line[0] !== '#' && !prefix) {
+                        const m = line.match(/(\d+)_\d+\.js/);
+                        if (m) prefix = m[1];
+                    }
+                }
+                if (prefix && audioDur > 0) break;
             }
         }
         if (!prefix || audioDur <= 0) return '';
 
-        // Dynamically detect frame extension (.jpg or .woff2 or .js) (one-line comment)
+        // Step 5: Detect frame extension (.jpg / .woff2 / .js) (one-line comment)
         let videoExt = '';
         const testExts = ['jpg', 'woff2', 'js'];
         for (let e = 0; e < testExts.length; e++) {
@@ -785,7 +824,6 @@
             } catch (_) { return false; }
         };
         let count = Math.ceil(audioDur / 3.0);
-        // Real variants are exactly 3s per frame, so video count = ceil(audioDur / 3), verified on the cheapest quality (one-line comment)
         const probeQ = (await probe('720p', 0)) ? '720p' : '1080p';
         if (!(await probe(probeQ, count - 1)) || await probe(probeQ, count)) {
             for (let d = 1; d <= 8; d++) {
@@ -794,6 +832,7 @@
             }
         }
         if (count < 1) return '';
+
         const buildVariant = function (q, bw, res) {
             let out = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:3\n#EXT-X-MEDIA-SEQUENCE:0\n';
             for (let n = 0; n < count; n++) out += '#EXTINF:3.0,\n' + frameUrl(q, n) + '\n';
@@ -823,9 +862,10 @@
         const v720 = (await probe('720p', 0)) ? buildVariant('720p', 600000, '1280x720') : '';
         const v480 = (await probe('480p', 0)) ? buildVariant('480p', 400000, '854x480') : '';
         if (!v1080 && !v720 && !v480) return '';
+
         let master = '#EXTM3U\n#EXT-X-VERSION:3\n';
-        for (let i = 0; i < REAL_AUDIO_TRACKS.length; i++) {
-            master += '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aac",LANGUAGE="' + REAL_AUDIO_TRACKS[i][0] + '",NAME="' + REAL_AUDIO_TRACKS[i][1] + '",DEFAULT=' + (REAL_AUDIO_TRACKS[i][0] === 'eng' ? 'YES' : 'NO') + ',URI="' + base + '/a/' + i + '/' + i + '.m3u8"\n';
+        for (let i = 0; i < audioLines.length; i++) {
+            master += audioLines[i] + '\n';
         }
         if (v1080) {
             master += '#EXT-X-STREAM-INF:BANDWIDTH=1000000,AUDIO="aac",RESOLUTION=1920x1080,CLOSED-CAPTIONS=NONE\n';
@@ -845,9 +885,11 @@
 
     async function loadPrimeStreams(provider, payload) {
         const out = [];
+        // Enforce verified token for prime stream extraction (one-line comment)
+        const cookieStr = await cookieString(provider, true);
         try {
-            // Build a real playlist from the open CDN data without dummy streams (one-line comment)
-            const realMaster = await buildRealPlaylist(provider, payload.id);
+            // Build a real playlist with authentic audio tracks without dummy streams (one-line comment)
+            const realMaster = await buildRealPlaylist(provider, payload.id, cookieStr);
             if (realMaster) {
                 out.push(new StreamResult({
                     url: realMaster,
@@ -862,8 +904,6 @@
             }
         } catch (_) { /* fall back to playlist.php below */ }
 
-        // Enforce new verified token for prime stream extraction to avoid playback 403 errors (one-line comment)
-        const cookieStr = await cookieString(provider, true);
         const playlistUrl = provider.baseUrl + provider.playlistPath + '?id=' + encodeURIComponent(payload.id) + '&t=' + encodeURIComponent(payload.title || '') + '&tm=' + unixTs();
         const res = await http_get(playlistUrl, Object.assign({}, COMMON_HEADERS, { Referer: provider.baseUrl + '/home', Cookie: cookieStr, 'X-Requested-With': 'XMLHttpRequest' }));
         const playlist = parseJsonSafe(res.body, []);
