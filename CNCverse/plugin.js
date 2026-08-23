@@ -7,7 +7,7 @@
     const BASE_URL = 'https://net52.cc';
     const PLAY_URL = 'https://net52.cc';
 
-    // Polyfill StreamResult constructor if not injected by host runtime (one-line comment)
+    // Polyfill StreamResult constructor if not injected by host runtime
     const StreamResult = (typeof globalThis.StreamResult === 'function') ? globalThis.StreamResult : function (t) { return t; };
 
     const COMMON_HEADERS = {
@@ -720,14 +720,14 @@
     ];
 
     async function buildRealPlaylist(provider, epId, cookieStr) {
-        // Dynamically extract authentic audio tracks and real video streams across CDN candidates (one-line comment)
+        // Dynamically extract authentic audio tracks and real video streams across CDN candidates
         const refHeaders = { Referer: 'https://net52.cc/pv/', 'User-Agent': COMMON_HEADERS['User-Agent'] };
         let audioLines = [];
         let base = '';
         let prefix = '';
         let audioDur = 0;
 
-        // Step 1: Extract authentic audio media descriptors from original master playlist (one-line comment)
+        // Step 1: Extract authentic audio media descriptors from original master playlist
         try {
             const plUrl = provider.baseUrl + provider.playlistPath + '?id=' + encodeURIComponent(epId) + '&t=title&tm=' + unixTs();
             const plRes = await http_get(plUrl, Object.assign({}, COMMON_HEADERS, { Cookie: cookieStr || '', 'X-Requested-With': 'XMLHttpRequest' }));
@@ -753,7 +753,7 @@
             }
         } catch (_) {}
 
-        // Step 2: Fallback probe across known CDNs if base not resolved from playlist (one-line comment)
+        // Step 2: Fallback probe across known CDNs if base not resolved from playlist
         if (!base) {
             for (let c = 0; c < CDN_CANDIDATES.length; c++) {
                 const testBase = CDN_CANDIDATES[c] + '/files/' + encodeURIComponent(epId);
@@ -769,7 +769,7 @@
         }
         if (!base) return '';
 
-        // Step 3: Extract real language list from post.php if original master playlist had no audio tags (one-line comment)
+        // Step 3: Extract real language list from post.php if original master playlist had no audio tags
         if (audioLines.length === 0) {
             try {
                 const postUrl = provider.baseUrl + provider.postPath + '?id=' + encodeURIComponent(epId) + '&t=' + unixTs();
@@ -784,31 +784,37 @@
             } catch (_) {}
         }
 
-        // Step 4: Probe duration and prefix from active audio tracks (one-line comment)
+        // Step 4: Extract exact segment sequence and durations from active audio track
+        const segments = [];
+        let targetDur = 10;
         for (let i = 0; i < 5; i++) {
             const r = await http_get(base + '/a/' + i + '/' + i + '.m3u8', refHeaders);
             if (r.status === 200 && String(r.body).indexOf('#EXTM3U') === 0) {
                 const lines = String(r.body).split('\n');
+                let curDur = 0;
                 for (let j = 0; j < lines.length; j++) {
                     const line = lines[j].trim();
-                    if (line.indexOf('#EXTINF:') === 0) {
-                        const sec = parseFloat(line.substring(8).split(',')[0]);
-                        if (!isNaN(sec)) audioDur += sec;
-                    } else if (line && line[0] !== '#' && !prefix) {
-                        const m = line.match(/(\d+)_\d+\.js/);
-                        if (m) prefix = m[1];
+                    if (line.indexOf('#EXT-X-TARGETDURATION:') === 0) {
+                        targetDur = parseInt(line.split(':')[1], 10) || 10;
+                    } else if (line.indexOf('#EXTINF:') === 0) {
+                        curDur = parseFloat(line.substring(8).split(',')[0]);
+                    } else if (line && line[0] !== '#') {
+                        const m = line.match(/(.+)\.js/);
+                        const baseName = m ? m[1] : line;
+                        segments.push({ dur: curDur || 9.0, baseName: baseName });
+                        curDur = 0;
                     }
                 }
-                if (prefix && audioDur > 0) break;
+                if (segments.length > 0) break;
             }
         }
-        if (!prefix || audioDur <= 0) return '';
+        if (segments.length === 0) return '';
 
-        // Step 5: Detect frame extension (.jpg / .woff2 / .js) (one-line comment)
+        // Step 5: Detect frame extension (.jpg / .woff2 / .js)
         let videoExt = '';
         const testExts = ['jpg', 'woff2', 'js'];
         for (let e = 0; e < testExts.length; e++) {
-            const tr = await http_get(base + '/720p/' + prefix + '_000.' + testExts[e], refHeaders);
+            const tr = await http_get(base + '/720p/' + segments[0].baseName + '.' + testExts[e], refHeaders);
             if (tr.status === 200 && String(tr.body || '').length > 500) {
                 videoExt = testExts[e];
                 break;
@@ -816,26 +822,18 @@
         }
         if (!videoExt) return '';
 
-        const frameUrl = function (q, n) { return base + '/' + q + '/' + prefix + '_' + String(n).padStart(3, '0') + '.' + videoExt; };
-        const probe = async function (q, n) {
+        const probeQuality = async function (q) {
             try {
-                const r = await http_get(frameUrl(q, n), refHeaders);
+                const r = await http_get(base + '/' + q + '/' + segments[0].baseName + '.' + videoExt, refHeaders);
                 return r.status === 200 && String(r.body || '').length > 500;
             } catch (_) { return false; }
         };
-        let count = Math.ceil(audioDur / 3.0);
-        const probeQ = (await probe('720p', 0)) ? '720p' : '1080p';
-        if (!(await probe(probeQ, count - 1)) || await probe(probeQ, count)) {
-            for (let d = 1; d <= 8; d++) {
-                if (!(await probe(probeQ, count - d))) { count -= d; break; }
-                if (await probe(probeQ, count + d)) { count += d; break; }
-            }
-        }
-        if (count < 1) return '';
 
-        const buildVariant = function (q, bw, res) {
-            let out = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:3\n#EXT-X-MEDIA-SEQUENCE:0\n';
-            for (let n = 0; n < count; n++) out += '#EXTINF:3.0,\n' + frameUrl(q, n) + '\n';
+        const buildVariant = function (q) {
+            let out = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:' + targetDur + '\n#EXT-X-MEDIA-SEQUENCE:0\n';
+            for (let n = 0; n < segments.length; n++) {
+                out += '#EXTINF:' + segments[n].dur + ',\n' + base + '/' + q + '/' + segments[n].baseName + '.' + videoExt + '\n';
+            }
             return out + '#EXT-X-ENDLIST\n';
         };
         const b64 = function (s) {
@@ -858,9 +856,9 @@
             }
             return 'magic_m3u8:' + b64(content);
         };
-        const v1080 = (await probe('1080p', 0)) ? buildVariant('1080p', 1000000, '1920x1080') : '';
-        const v720 = (await probe('720p', 0)) ? buildVariant('720p', 600000, '1280x720') : '';
-        const v480 = (await probe('480p', 0)) ? buildVariant('480p', 400000, '854x480') : '';
+        const v1080 = (await probeQuality('1080p')) ? buildVariant('1080p') : '';
+        const v720 = (await probeQuality('720p')) ? buildVariant('720p') : '';
+        const v480 = (await probeQuality('480p')) ? buildVariant('480p') : '';
         if (!v1080 && !v720 && !v480) return '';
 
         let master = '#EXTM3U\n#EXT-X-VERSION:3\n';
@@ -885,10 +883,10 @@
 
     async function loadPrimeStreams(provider, payload) {
         const out = [];
-        // Enforce verified token for prime stream extraction (one-line comment)
+        // Enforce verified token for prime stream extraction
         const cookieStr = await cookieString(provider, true);
         try {
-            // Build a real playlist with authentic audio tracks without dummy streams (one-line comment)
+            // Build a real playlist with authentic audio tracks without dummy streams
             const realMaster = await buildRealPlaylist(provider, payload.id, cookieStr);
             if (realMaster) {
                 out.push(new StreamResult({
@@ -914,7 +912,7 @@
                     if (!fullUrl.startsWith('/')) fullUrl = '/' + fullUrl;
                     fullUrl = provider.playUrl + fullUrl;
                 }
-                // Filter out known dummy stream replacements (one-line comment)
+                // Filter out known dummy stream replacements
                 if (fullUrl.indexOf('220884') >= 0) return;
                 out.push(new StreamResult({
                     url: fullUrl,
