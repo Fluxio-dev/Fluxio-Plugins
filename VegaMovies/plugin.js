@@ -153,16 +153,16 @@
         return links;
     }
 
-    // Rogmovies: button.btn with V-Cloud|G-Direct -> parent href
+    // Match all V-Cloud, G-Direct, FastDL, HubCloud links on intermediate page
     function findBtnSources(html) {
         if (!html) return [];
         var results = [];
-        var re = /<a[^>]*href="([^"]+)"[^>]*>(?:(?!<\/a>)[\s\S])*?<button[^>]*class="[^"]*\bbtn\b[^"]*"[^>]*>([\s\S]*?)<\/button>(?:(?!<\/a>)[\s\S])*?<\/a>/gi;
+        var re = /<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
         var m;
         while ((m = re.exec(html)) !== null) {
             var href = m[1].trim();
             var text = stripHtml(m[2]).trim();
-            if (href && href !== '#' && /(?:v-cloud|g-direct)/i.test(text)) {
+            if (href && href !== '#' && href !== '/' && /(?:v-cloud|g-direct|fastdl|vcloud|hubcloud|pub-.*\.r2\.dev|pixeldrain)/i.test(text + ' ' + href)) {
                 if (results.indexOf(href) < 0) results.push(href);
             }
         }
@@ -296,52 +296,89 @@
         return (manifest && manifest.baseUrl) || BASE_URL;
     }
 
+    // Safe Base64 decoder with multi-platform runtime polyfill
+    function safeAtob(str) {
+        if (!str) return '';
+        try { if (typeof atob === 'function') return atob(str); } catch(e) {}
+        try { if (typeof Buffer !== 'undefined') return Buffer.from(str, 'base64').toString('utf-8'); } catch(e) {}
+        var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+        var output = '';
+        str = String(str).replace(/=+$/, '');
+        for (var bc = 0, bs, buffer, idx = 0; buffer = str.charAt(idx++); ~buffer && (bs = bc % 4 ? bs * 64 + buffer : buffer, bc++ % 4) ? output += String.fromCharCode(255 & bs >> (-2 * bc & 6)) : 0) {
+            buffer = chars.indexOf(buffer);
+        }
+        return output;
+    }
+
+    // Recursively decode nested base64 strings until finding plaintext URL
+    function recursiveAtob(str) {
+        if (!str) return '';
+        var cur = str;
+        for (var i = 0; i < 5; i++) {
+            if (/^[A-Za-z0-9+/=]{16,}$/.test(cur.trim())) {
+                try {
+                    var dec = safeAtob(cur.trim());
+                    if (dec && /[\w\d:\/\.\?=&_-]/.test(dec)) {
+                        cur = dec;
+                        if (cur.indexOf('http') === 0 || cur.indexOf('/') === 0) return cur;
+                    } else break;
+                } catch(e) { break; }
+            } else break;
+        }
+        return cur;
+    }
+
     // ========================================================================
     // V-CLOUD EXTRACTOR - matching Kotlin Extractors.kt - VCloud class
     // ========================================================================
 
     async function extractVcStream(url, cb) {
         try {
-            var isHub = url.toLowerCase().indexOf('hubcloud') >= 0;
-            var latestBase = await getLatestVc(isHub ? 'hubcloud' : 'vcloud');
-            var curBase = getBaseUrl(url);
-            var newUrl = url;
-            if (curBase !== latestBase) { newUrl = url.replace(curBase, latestBase); curBase = latestBase; }
-
-            var html = await fetchUrl(newUrl);
-            if (!html) return 0;
-
-            // Get token URL - matching Kotlin VCloud.getUrl()
-            var tokenUrl = '';
-            if (newUrl.indexOf('/video/') >= 0) {
-                // Kotlin: doc.selectFirst("div.vd > center > a")
-                var vdM = html.match(/<div[^>]*class="[^"]*\bvd\b[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
-                if (vdM) {
-                    var cM = vdM[1].match(/<center[^>]*>([\s\S]*?)<\/center>/i);
-                    if (cM) { var aM = cM[1].match(/<a[^>]*href="([^"]*)"[^>]*>/i); if (aM) tokenUrl = aM[1]; }
-                }
-            } else {
-                // Kotlin: doc.selectFirst("script:containsData(url)"), then Regex("var url = '([^']*)'")
-                var scripts = html.match(/<script[^>]*>([\s\S]*?)<\/script>/gi);
-                if (scripts) {
-                    for (var si = 0; si < scripts.length; si++) {
-                        var uM = scripts[si].match(/var\s+url\s*=\s*['"]([^'"]+)['"]/);
-                        if (uM) { tokenUrl = uM[1]; break; }
-                    }
-                }
-                // Also check for src token pattern
-                if (!tokenUrl) {
-                    var srcM = html.match(/src\s*=\s*['"]([^'"]*token[^'"]*)['"]/i);
-                    if (srcM) tokenUrl = srcM[1];
+            var html = await fetchUrl(url);
+            if (!html) {
+                var isHub = url.toLowerCase().indexOf('hubcloud') >= 0;
+                var latestBase = await getLatestVc(isHub ? 'hubcloud' : 'vcloud');
+                var curBase = getBaseUrl(url);
+                if (curBase !== latestBase) {
+                    html = await fetchUrl(url.replace(curBase, latestBase));
                 }
             }
+            if (!html) return 0;
+
+            // Multi-pattern token URL resolver supporting nested atob, script vars, and vd links
+            var tokenUrl = '';
+            var atobCallM = html.match(/atob\s*\(\s*atob\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\)/i);
+            if (atobCallM) {
+                tokenUrl = safeAtob(safeAtob(atobCallM[1]));
+            }
+            if (!tokenUrl) {
+                var singleAtob = html.match(/atob\s*\(\s*['"]([^'"]+)['"]\s*\)/i);
+                if (singleAtob) tokenUrl = safeAtob(singleAtob[1]);
+            }
+            if (!tokenUrl) {
+                var varUrlM = html.match(/(?:var|let|const)?\s*url\s*=\s*['"]([^'"]+)['"]/i);
+                if (varUrlM) tokenUrl = recursiveAtob(varUrlM[1]);
+            }
+            if (!tokenUrl) {
+                var locM = html.match(/(?:window\.)?location(?:\.href)?\s*=\s*['"]([^'"]+)['"]/i);
+                if (locM && locM[1].indexOf('http') >= 0) tokenUrl = locM[1];
+            }
+            if (!tokenUrl) {
+                var vdM = html.match(/<div[^>]*class="[^"]*\bvd\b[^"]*"[^>]*>[\s\S]*?<a[^>]*href="([^"]*)"[^>]*>/i);
+                if (vdM) tokenUrl = vdM[1];
+            }
+            if (!tokenUrl) {
+                var srcM = html.match(/src\s*=\s*['"]([^'"]*token[^'"]*)['"]/i);
+                if (srcM) tokenUrl = srcM[1];
+            }
+
             if (!tokenUrl) return 0;
-            if (tokenUrl.indexOf('://') < 0) tokenUrl = curBase + (tokenUrl.indexOf('/') === 0 ? '' : '/') + tokenUrl;
+            if (tokenUrl.indexOf('://') < 0) tokenUrl = getBaseUrl(url) + (tokenUrl.indexOf('/') === 0 ? '' : '/') + tokenUrl;
 
             var docHtml = await fetchUrl(tokenUrl);
             if (!docHtml) return 0;
 
-            // Extract quality/size - Kotlin: document.select("div.card-header").text()
+            // Extract quality and size metadata
             var cardM = docHtml.match(/<div[^>]*class="[^"]*card-header[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
             var headerText = cardM ? stripHtml(cardM[1]) : 'Unknown';
             var sizeM = docHtml.match(/<i[^>]*id="size"[^>]*>([\s\S]*?)<\/i>/i);
@@ -349,121 +386,115 @@
             var quality = getQualityNum(headerText);
             var labelBase = headerText + (sizeText ? ' [' + sizeText + ']' : '');
 
-            // Kotlin: document.select("h2 a.btn") - find ALL <a class="btn"> inside <h2>
-            // Handle BOTH attribute orders: href before class, or class before href
-            var links = [];
-            // Try href then class order
-            var btnRe1 = /<h2[^>]*>([\s\S]*?)<\/h2>/gi;
-            var h2M;
-            while ((h2M = btnRe1.exec(docHtml)) !== null) {
-                var h2Content = h2M[1];
-                var found = false;
-                // Pattern: href="..." class="...btn..."
-                var aRe1 = /<a[^>]*href="([^"]+)"[^>]*class="([^"]*)btn([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
-                var aM1;
-                while ((aM1 = aRe1.exec(h2Content)) !== null) {
-                    links.push({ href: aM1[1].trim(), text: stripHtml(aM1[4]).trim() });
-                    found = true;
+            // Scan scripts for dynamic cloud stream overrides
+            var scriptPxl = [];
+            var scriptFsl = [];
+            var sRe = /<script[\s\S]*?<\/script>/gi;
+            var sm;
+            while ((sm = sRe.exec(docHtml)) !== null) {
+                var sContent = sm[0];
+                var pm;
+                var pxlRe = /https?:\/\/pixeldrain\.[a-z]{2,4}\/(?:u|file|api\/file)\/([a-zA-Z0-9_-]{6,16})/gi;
+                while ((pm = pxlRe.exec(sContent)) !== null) {
+                    if (pm[1] !== 'negn6f' && scriptPxl.indexOf(pm[1]) < 0) scriptPxl.push(pm[1]);
                 }
-                // Pattern: class="...btn..." href="..."
-                var aRe2 = /<a[^>]*class="([^"]*)btn([^"]*)"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-                var aM2;
-                while ((aM2 = aRe2.exec(h2Content)) !== null) {
-                    // Check if this URL was already found (dedup)
-                    var dup = false;
-                    for (var di = 0; di < links.length; di++) {
-                        if (links[di].href === aM2[3].trim()) { dup = true; break; }
-                    }
-                    if (!dup) links.push({ href: aM2[3].trim(), text: stripHtml(aM2[4]).trim() });
-                    found = true;
-                }
-                // If no btn class match, try any <a> in h2
-                if (!found) {
-                    var aRe3 = /<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-                    var aM3;
-                    while ((aM3 = aRe3.exec(h2Content)) !== null) {
-                        var href3 = aM3[1].trim();
-                        var text3 = stripHtml(aM3[2]).trim();
-                        if (!href3 || href3 === '#' || href3 === '/') continue;
-                        var dup2 = false;
-                        for (var di2 = 0; di2 < links.length; di2++) {
-                            if (links[di2].href === href3) { dup2 = true; break; }
-                        }
-                        if (!dup2) links.push({ href: href3, text: text3 });
-                    }
+                var rm;
+                var r2Re = /https?:\/\/[a-zA-Z0-9.-]+\.r2\.dev\/[a-zA-Z0-9_\/.-]+(?:\?[^"'\s<>]+)?/gi;
+                while ((rm = r2Re.exec(sContent)) !== null) {
+                    if (scriptFsl.indexOf(rm[0]) < 0) scriptFsl.push(rm[0]);
                 }
             }
 
-            // Kotlin: for each link, check text against server patterns
+            var links = [];
+            var aRe = /<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+            var am;
+            while ((am = aRe.exec(docHtml)) !== null) {
+                var href = am[1].trim();
+                var text = stripHtml(am[2]).trim();
+                if (href && href !== '#' && href !== '/' && href !== 'admin') {
+                    links.push({ href: href, text: text });
+                }
+            }
+
+            // Emit script-overridden Pixeldrain streams if present
+            if (scriptPxl.length > 0) {
+                for (var spi = 0; spi < scriptPxl.length; spi++) {
+                    if (cb) cb('https://pixeldrain.dev/api/file/' + scriptPxl[spi] + '?download', quality, 'Pixeldrain', labelBase);
+                }
+            }
+
+            // Emit script-overridden FSL / R2 streams if present
+            if (scriptFsl.length > 0) {
+                for (var sfi = 0; sfi < scriptFsl.length; sfi++) {
+                    if (cb) cb(scriptFsl[sfi], quality, 'FSL Server', labelBase);
+                }
+            }
+
             var tasks = links.map(async function(link) {
                 var h = link.href, t = link.text;
+                if (!h || h.indexOf('http') !== 0 || h.indexOf('google.com/search') >= 0 || h.indexOf('t.me') >= 0 || h.indexOf('bit.ly') >= 0 || h.indexOf('winexch') >= 0) return 0;
 
-                // Kotlin: if (text.contains("FSL Server"))
-                if (t.indexOf('FSL Server') >= 0 || t.indexOf('FSL ') >= 0) {
-                    if (cb) cb(h, quality, 'FSL Server', labelBase); return 1;
+                // FSL / Cloudflare R2 direct stream (skip if already emitted from script)
+                if (t.indexOf('FSL') >= 0 || h.indexOf('.r2.dev') >= 0) {
+                    if (scriptFsl.length === 0 && cb) cb(h, quality, 'FSL Server', labelBase); return 1;
                 }
-                // Kotlin: else if (text.contains("FSLv2"))
-                if (t.indexOf('FSLv2') >= 0) {
-                    if (cb) cb(h, quality, 'FSLv2 Server', labelBase); return 1;
+                // Pixeldrain direct stream (skip if already emitted from script)
+                if (h.indexOf('pixeldrain') >= 0 || t.indexOf('Pixel') >= 0) {
+                    if (scriptPxl.length === 0) {
+                        var segM = h.match(/(?:u|file)\/([a-zA-Z0-9_-]+)/i);
+                        if (segM && segM[1] !== 'negn6f' && cb) cb('https://pixeldrain.dev/api/file/' + segM[1] + '?download', quality, 'Pixeldrain', labelBase);
+                    }
+                    return 1;
                 }
-                // Kotlin: else if (text.contains("Mega Server"))
-                if (t.indexOf('Mega Server') >= 0 || t.indexOf('Mega') >= 0) {
+                // Gofile direct stream
+                if (h.indexOf('gofile.io') >= 0 || t.indexOf('Gofile') >= 0) {
+                    if (cb) cb(h, quality, 'Gofile Server', labelBase); return 1;
+                }
+                // HubCloud direct stream
+                if (h.indexOf('hubcloud') >= 0 || t.indexOf('10Gbps') >= 0 || t.indexOf('Server : 10Gbps') >= 0) {
+                    if (cb) cb(h, quality, 'HubCloud 10Gbps', labelBase); return 1;
+                }
+                // Mega server
+                if (t.indexOf('Mega') >= 0) {
                     if (cb) cb(h, quality, 'Mega Server', labelBase); return 1;
                 }
-                // Kotlin: else if (text.contains("Download File"))
-                if (t.indexOf('Download File') >= 0) {
-                    if (cb) cb(h, quality, '', labelBase); return 1;
+                // Direct video link container
+                if (/\.(?:mp4|mkv|m3u8|webm)(?:\?|$)/i.test(h)) {
+                    if (cb) cb(h, quality, 'Direct Stream', labelBase); return 1;
                 }
-                // Kotlin: else if (text.contains("BuzzServer"))
-                if (t.indexOf('BuzzServer') >= 0 || t.indexOf('Buzz Server') >= 0) {
-                    try {
-                        var bUrl = h.charAt(h.length-1) === '/' ? h : h + '/download';
-                        var bRes = await http_get(bUrl, Object.assign({}, HEADERS, { 'Referer': tokenUrl }));
-                        var bText = bRes ? (bRes.body || bRes.text || '') : '';
-                        var hxM = bText.match(/hx-redirect\s*=\s*"([^"]+)"/i);
-                        if (hxM) { var dl = hxM[1]; var base = getBaseUrl(h); var fUrl = base + (dl.indexOf('/') === 0 ? dl : '/' + dl); if (cb) cb(fUrl, quality, 'BuzzServer', labelBase); return 1; }
-                    } catch(e) { /* skip */ }
-                    return 0;
-                }
-                // Kotlin: else if (link.contains("pixeldra"))
-                if (h.indexOf('pixeldra') >= 0 || t.indexOf('Pixeldrain') >= 0 || t.indexOf('PixelServer') >= 0) {
-                    var pxlM = docHtml.match(/var\s+pxl\s*=\s*["']([^"']+)["']/);
-                    var pxl = pxlM ? pxlM[1] : null;
-                    if (pxl) {
-                        var baseLink = getBaseUrl(pxl);
-                        var fURL = '';
-                        if (pxl.toLowerCase().indexOf('download') >= 0) { fURL = pxl; }
-                        else { var seg = pxl.split('/').pop(); fURL = baseLink + '/api/file/' + seg + '?download'; }
-                        if (cb) cb(fURL, quality, 'Pixeldrain', labelBase); return 1;
-                    }
-                    return 0;
-                }
-                // Kotlin: else if (text.contains("Server : 10Gbps"))
-                if (t.indexOf('10Gbps') >= 0 || t.indexOf('10 gbps') >= 0 || t.indexOf('10gbps') >= 0 || h.indexOf('hubcloud.cx') >= 0) {
-                    var fLink = h;
-                    var linkParts = h.split('link=');
-                    if (linkParts.length > 1) { var afterLink = linkParts[1]; var ampIdx = afterLink.indexOf('&'); fLink = ampIdx >= 0 ? afterLink.substring(0, ampIdx) : afterLink; fLink = decodeURIComponent(fLink); }
-                    if (cb) cb(fLink, quality, 'Download', labelBase); return 1;
-                }
-                // Extra catch: any link with Download in text
-                if (t.toLowerCase().indexOf('download') >= 0) {
-                    if (cb) cb(h, quality, 'Download', labelBase); return 1;
-                }
-                // Extra catch: any remaining link that looks like a server
-                if (h.indexOf('http') >= 0 && t.length > 0) {
-                    if (cb) cb(h, quality, 'Server', labelBase); return 1;
+                // General direct download stream
+                if (t.toLowerCase().indexOf('download') >= 0 || t.toLowerCase().indexOf('server') >= 0) {
+                    if (cb) cb(h, quality, t || 'Direct', labelBase); return 1;
                 }
                 return 0;
             });
 
             var results = await Promise.all(tasks);
-            return results.reduce(function(a, v) { return a + v; }, 0);
+            return results.reduce(function(a, v) { return a + v; }, 0) + scriptPxl.length + scriptFsl.length;
         } catch (e) { return 0; }
     }
 
     async function extractSingleVc(vcUrl, referer) {
         var streams = [];
         var lower = vcUrl.toLowerCase();
+
+        // Unwrap direct stream from query params without unnecessary roundtrips
+        var linkParam = vcUrl.match(/[?&](?:link|url|download)=([^&]+)/i);
+        if (linkParam) {
+            var decodedParam = decodeURIComponent(linkParam[1]);
+            if (decodedParam.indexOf('http') === 0) {
+                var isDirectVideo = decodedParam.indexOf('googleusercontent.com') >= 0 || /\.(?:mp4|mkv|m3u8|webm)(?:\?|$)/i.test(decodedParam);
+                if (isDirectVideo) {
+                    streams.push({
+                        url: decodedParam,
+                        name: 'G-Direct [Instant]',
+                        source: 'G-Direct',
+                        quality: 1080,
+                        headers: { 'Referer': getBaseUrl(vcUrl) }
+                    });
+                }
+            }
+        }
 
         if (lower.indexOf('vcloud') >= 0 || lower.indexOf('hubcloud') >= 0 || lower.indexOf('nexdrive') >= 0) {
             await extractVcStream(vcUrl, function(su, q, sn, lb) {
@@ -478,15 +509,20 @@
             });
         }
 
-        // FastDL fallback
-        if ((streams.length === 0 || lower.indexOf('fastdl') >= 0) && (lower.indexOf('fastdl') >= 0 || lower.indexOf('vcloud') >= 0 || lower.indexOf('hubcloud') >= 0 || lower.indexOf('nexdrive') >= 0)) {
+        // FastDL / G-Direct stream unwrapper
+        if (streams.length === 0 && (lower.indexOf('fastdl') >= 0 || lower.indexOf('g-direct') >= 0)) {
             try {
                 var fHtml = await fetchUrl(vcUrl);
                 if (fHtml) {
                     var rM = fHtml.match(/var\s+reurl\s*=\s*"([^"]+)"/);
-                    if (rM) streams.push({ url: rM[1], name: 'FastDL', source: 'FastDL', quality: 0, headers: { 'Referer': getBaseUrl(vcUrl) } });
-                    var vidM = fHtml.match(/https?:\/\/[^"'\s]+\.(?:mp4|mkv|avi|webm)[^"'\s]*/i);
-                    if (vidM && streams.length === 0) streams.push({ url: vidM[0], name: 'Direct', source: 'Direct', quality: 0, headers: { 'Referer': getBaseUrl(vcUrl) } });
+                    var candidateUrl = rM ? rM[1] : vcUrl;
+                    var lp = candidateUrl.match(/[?&]link=([^&]+)/);
+                    if (lp) {
+                        var directUrl = decodeURIComponent(lp[1]);
+                        streams.push({ url: directUrl, name: 'G-Direct [Instant]', source: 'G-Direct', quality: 1080, headers: { 'Referer': 'https://fastdl.zip/' } });
+                    } else if (rM) {
+                        streams.push({ url: rM[1], name: 'FastDL', source: 'FastDL', quality: 1080, headers: { 'Referer': getBaseUrl(vcUrl) } });
+                    }
                 }
             } catch(e) { /* skip */ }
         }
@@ -922,8 +958,10 @@
     // loadStreams - matching VegaMoviesProvider.kt - loadLinks()
     // ========================================================================
 
-    async function loadStreams(url, cb) {
+    async function loadStreams(data, cb) {
         try {
+            var page = typeof data === 'string' && data.trim().startsWith('{') ? JSON.parse(data) : (typeof data === 'object' ? data : { url: data });
+            var url = page.url || (typeof data === 'string' ? data : '');
             var lower = url.toLowerCase();
 
             // Direct V-Cloud/HubCloud URL (series episodes)
@@ -1101,23 +1139,10 @@
                             try {
                                 var nexHtml = await withTimeout(function() { return fetchUrl(nexUrl); }, 30000);
                                 if (!nexHtml) return itemStreams;
-                                var btnRe = /<a[^>]*href="([^"]+)"[^>]*>(?:(?!<\/a>)[\s\S])*?<button[^>]*class="[^"]*\bbtn\b[^"]*"[^>]*>([\s\S]*?)<\/button>(?:(?!<\/a>)[\s\S])*?<\/a>/gi;
-                                var btnM;
-                                while ((btnM = btnRe.exec(nexHtml)) !== null) {
-                                    if (/V-Cloud|G-Direct/i.test(stripHtml(btnM[2]))) {
-                                        var vcUrl = fixUrl(btnM[1]);
-                                        if (vcUrl) {
-                                            var resolved = await resolveRogmoviesVc(vcUrl, rogQuality, nexUrl);
-                                            resolved.forEach(function(s) { if (itemStreams.indexOf(s) < 0) itemStreams.push(s); });
-                                        }
-                                    }
-                                }
-                                if (itemStreams.length === 0) {
-                                    var bestL = findBestVcLink(nexHtml);
-                                    if (bestL) {
-                                        var st3 = await extractSingleVc(fixUrl(bestL, getBaseUrl(nexUrl)), nexUrl);
-                                        st3.forEach(function(s) { if (itemStreams.indexOf(s) < 0) itemStreams.push(s); });
-                                    }
+                                var btnSources = findBtnSources(nexHtml);
+                                for (var bsi = 0; bsi < btnSources.length; bsi++) {
+                                    var resolved = await extractSingleVc(fixUrl(btnSources[bsi], getBaseUrl(nexUrl)), nexUrl);
+                                    resolved.forEach(function(s) { if (itemStreams.indexOf(s) < 0) itemStreams.push(s); });
                                 }
                             } catch(e) {}
                             return itemStreams;
