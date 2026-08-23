@@ -1,7 +1,8 @@
 (function() {
     'use strict';
 
-    var BASE_URL = manifest && manifest.baseUrl ? manifest.baseUrl : 'https://vegamovies.market';
+    // Read base URL strictly from injected manifest (one-line comment)
+    var BASE_URL = (manifest && manifest.baseUrl) || '';
     var ROG_BASE_URL = 'https://rogmovies.cv';
     var TMDB_API = 'https://api.tmdb.org/3';
     var TMDB_KEY = manifest && manifest.apiKey || '';
@@ -21,7 +22,16 @@
         try {
             var merged = Object.assign({}, HEADERS, ch || {});
             var res = await http_get(url, merged);
-            return res ? (res.body || res.text || '') : '';
+            var body = res ? (res.body || res.text || '') : '';
+            // Follow HTML meta refresh or client location redirects
+            if (body && body.length < 2500) {
+                var refM = body.match(/<meta[^>]+http-equiv=["']refresh["'][^>]+content=["'][^"']*url=([^"'>\s]+)["']/i) ||
+                           body.match(/window\.location(?:\.href)?\s*=\s*["']([^"']+)["']/i);
+                if (refM && refM[1] && url.indexOf(refM[1]) < 0) {
+                    return await fetchUrl(fixUrl(refM[1].trim(), getBaseUrl(url)), ch);
+                }
+            }
+            return body;
         } catch (e) { return ''; }
     }
 
@@ -281,8 +291,9 @@
     }
 
     async function getWorkingUrl() {
-        try { var j = await getUrls(); return j && j.vegamovies ? j.vegamovies : BASE_URL; }
-        catch (e) { return BASE_URL; }
+        // Check dynamic URLs JSON with fallback to manifest baseUrl (one-line comment)
+        try { var j = await getUrls(); if (j && j.vegamovies) return j.vegamovies; } catch(e) {}
+        return (manifest && manifest.baseUrl) || BASE_URL;
     }
 
     // ========================================================================
@@ -490,26 +501,58 @@
         try {
             var wu = await getWorkingUrl();
             var cats = [
-                { n: 'Home', u: wu + '/page/%d/' },
-                { n: 'Netflix', u: wu + '/category/web-series/netflix/page/%d/' },
-                { n: 'Disney Plus Hotstar', u: wu + '/category/web-series/disney-plus-hotstar/page/%d/' },
-                { n: 'Amazon Prime', u: wu + '/category/web-series/amazon-prime-video/page/%d/' },
-                { n: 'MX Original', u: wu + '/category/web-series/mx-original/page/%d/' },
-                { n: 'Anime Series', u: wu + '/category/anime-series/page/%d/' },
-                { n: 'Korean Series', u: wu + '/category/korean-series/page/%d/' }
+                { n: 'Home', paths: ['/page/%d/', '/'] },
+                { n: 'Netflix', paths: ['/web-series/netflix/page/%d/', '/category/web-series/netflix/page/%d/'] },
+                { n: 'Disney Plus Hotstar', paths: ['/web-series/disney-plus-hotstar/page/%d/', '/category/web-series/disney-plus-hotstar/page/%d/'] },
+                { n: 'Amazon Prime', paths: ['/web-series/amazon-prime-video/page/%d/', '/category/web-series/amazon-prime-video/page/%d/'] },
+                { n: 'Anime Series', paths: ['/anime-series/page/%d/', '/category/anime-series/page/%d/'] },
+                { n: 'Korean Series', paths: ['/korean-series/page/%d/', '/category/korean-series/page/%d/'] }
             ];
             var result = {};
             var catResults = await Promise.all(cats.map(async function(c) {
-                var html = await fetchUrl(c.u.replace('%d', '1'));
-                if (!html) return null;
-                var re = /<a\s+href="([^"]+)"[^>]*>\s*<div class="poster-card">[\s\S]*?<img[^>]+src="([^"]+)"[^>]+alt="([^"]*)"[\s\S]*?<\/a>/gi;
-                var items = [], pm;
-                while ((pm = re.exec(html)) !== null) {
-                    var title = cleanTitle(pm[3]);
-                    if (!title || title.indexOf('${') >= 0) continue;
-                    if (isBadUrl(pm[1])) continue;
-                    items.push({ title: title, url: fixUrl(pm[1]), posterUrl: proxyImg(pm[2].indexOf('://') >= 0 ? pm[2] : fixUrl(pm[2])), type: 'movie', description: '' });
+                var html = '';
+                // Try primary and fallback category endpoints sequentially
+                for (var pi = 0; pi < c.paths.length; pi++) {
+                    html = await fetchUrl(wu + c.paths[pi].replace('%d', '1'));
+                    if (html && html.length > 500) break;
                 }
+                if (!html) return null;
+
+                var items = [], seen = {};
+                // Pattern 1: Link wrapping image with title/alt/aria-label
+                var re = /<a\s+[^>]*href="([^"]+)"[^>]*>(?:(?!<\/a>)[\s\S])*?<img[^>]+(?:src|data-src|data-lazy-src|data-original)="([^"]+)"[^>]*(?:alt="([^"]*)"|aria-label="([^"]*)")?(?:(?!<\/a>)[\s\S])*?<\/a>/gi;
+                var pm;
+                while ((pm = re.exec(html)) !== null) {
+                    var u = fixUrl(pm[1], wu);
+                    if (isBadUrl(u, wu) || /[\/?#](?:category|genre|movies-by-genres|page|tag)[\/?#]/i.test(u)) continue;
+                    if (seen[u]) continue;
+                    var rawT = pm[3] || pm[4] || '';
+                    var title = cleanTitle(rawT);
+                    if (!title || title.indexOf('${') >= 0) continue;
+                    seen[u] = true;
+                    items.push({ title: title, url: u, posterUrl: proxyImg(pm[2].indexOf('://') >= 0 ? pm[2] : fixUrl(pm[2], wu)), type: 'movie', description: '' });
+                }
+
+                // Pattern 2: Schema.org poster-card fallback
+                if (items.length === 0) {
+                    var cardRe = /<div[^>]*class="[^"]*poster-card[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi;
+                    var cm;
+                    while ((cm = cardRe.exec(html)) !== null) {
+                        var urlM = cm[1].match(/<meta[^>]+itemprop="url"[^>]+content="([^"]+)"/i);
+                        var imgM = cm[1].match(/<img[^>]+(?:src|data-src)="([^"]+)"[^>]+alt="([^"]*)"/i);
+                        if (urlM && imgM) {
+                            var u2 = fixUrl(urlM[1], wu);
+                            if (!seen[u2]) {
+                                var t2 = cleanTitle(imgM[2]);
+                                if (t2) {
+                                    seen[u2] = true;
+                                    items.push({ title: t2, url: u2, posterUrl: proxyImg(imgM[1].indexOf('://') >= 0 ? imgM[1] : fixUrl(imgM[1], wu)), type: 'movie', description: '' });
+                                }
+                            }
+                        }
+                    }
+                }
+
                 return items.length > 0 ? { name: c.n, items: items } : null;
             }));
             catResults.forEach(function(r) { if (r) result[r.name] = r.items; });
