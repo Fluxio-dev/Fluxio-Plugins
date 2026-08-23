@@ -1,7 +1,7 @@
 (function() {
     'use strict';
 
-    // Read base URL strictly from injected manifest (one-line comment)
+    // Read base URL strictly from injected manifest
     var BASE_URL = (manifest && manifest.baseUrl) || '';
     var ROG_BASE_URL = 'https://rogmovies.cv';
     var TMDB_API = 'https://api.tmdb.org/3';
@@ -291,7 +291,7 @@
     }
 
     async function getWorkingUrl() {
-        // Check dynamic URLs JSON with fallback to manifest baseUrl (one-line comment)
+        // Check dynamic URLs JSON with fallback to manifest baseUrl
         try { var j = await getUrls(); if (j && j.vegamovies) return j.vegamovies; } catch(e) {}
         return (manifest && manifest.baseUrl) || BASE_URL;
     }

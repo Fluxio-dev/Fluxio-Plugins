@@ -125,14 +125,14 @@
                     const tagNameMatch = token.match(/^<([a-z0-9]+)/i);
                     const tag = tagNameMatch ? tagNameMatch[1].toLowerCase() : "unknown";
                     const selfClosing = token.endsWith("/>") || /^(?:img|br|hr|input|meta|link)$/i.test(tag);
-                    
+
                     const attrs = {};
                     const attrRe = /([a-z0-9-]+)=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
                     let am;
                     while ((am = attrRe.exec(token))) {
                         attrs[am[1].toLowerCase()] = am[2] || am[3] || am[4];
                     }
-                    
+
                     const node = new JNode(tag, attrs, current);
                     current.children.push(node);
                     if (!selfClosing) {
@@ -398,7 +398,7 @@
                 }
                 return [];
             }
-            
+
             // Check if we're already on a page with download buttons (like gamerxyt)
             if (url.includes("gamerxyt.com") || res.body.includes("Download Link Generated")) {
                 return extractFinalButtons(res.body, qual);
@@ -412,7 +412,7 @@
                     return extractFinalButtons(res2.body, qual);
                 }
             }
-            
+
             // gdlink fallback: if no hubcloud pattern matched, passthrough the URL
             if (url.includes("gdlink")) {
                 return [{ url: url, name: "GdLink", quality: qual }];
@@ -450,7 +450,7 @@
             { title: "Anime", url: "/category/anime/page/" },
             { title: "K Drama", url: "/category/k-drama/page/" }
         ];
-        
+
         try {
             const baseUrl = await getBaseUrl();
             const pages = await fetchMany(cats.map(cat => ({ url: `${baseUrl}${cat.url}1`, headers: CommonHeaders, meta: cat })));
@@ -479,7 +479,7 @@
                         const title = cleanText(d.post_title).replace(/^Download\s+/i, "");
                         const href = fixUrl(d.permalink, baseUrl);
                         const poster = fixUrl(d.post_thumbnail, baseUrl);
-                        
+
                         if (href && title) {
                             items.push(new MultimediaItem({
                                 title,
@@ -503,7 +503,7 @@
             const baseUrl = await getBaseUrl();
             const res = await http_get(url, CommonHeaders);
             if (!res || !res.body) return cb({ success: false, errorCode: "SITE_OFFLINE", message: "Failed to load page" });
-            
+
             const doc = JsoupLite.parse(res.body);
             let title = cleanText(doc.find("title")?.text()).replace(/\s*[-|]\s*MoviesDrive.*$/i, "").replace(/^Download\s+/i, "");
             let poster = fixUrl(doc.find("main > p > img")?.attr("src") || doc.find("img")?.attr("src"), baseUrl);
@@ -588,7 +588,7 @@
             if (episodes.length === 0) return cb({ success: false, errorCode: "PARSE_ERROR", message: "No download links found" });
 
             episodes.sort((a,b) => (a.season - b.season) || (a.episode - b.episode));
-            
+
             cb({
                 success: true,
                 data: new MultimediaItem({
@@ -607,7 +607,7 @@
         try {
             const sources = parseSources(dataStr);
             if (!Array.isArray(sources)) return cb({ success: true, data: [] });
-            
+
             const nested = await Promise.all(sources.map(async item => {
                 const u = item.source;
                 const q = item.quality || "HD";

@@ -18,7 +18,7 @@
             }
         } catch (_) {}
     }
-    
+
     const HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
         "Cookie": "xla=s4t",
@@ -34,7 +34,7 @@
         const audioTags = ["AAC", "AC3", "DTS", "MP3", "FLAC", "DD", "DDP", "EAC3"];
         const audioExtras = new Set(["ATMOS"]);
         const hdrTags = new Set(["SDR", "HDR", "HDR10", "HDR10+", "DV", "DOLBYVISION"]);
-        
+
         const filtered = parts.map((part) => {
             const p = part.toUpperCase();
             if (sourceTags.has(p)) return p;
@@ -45,7 +45,7 @@
             if (p === "NF" || p === "CR") return p;
             return null;
         }).filter(Boolean);
-        
+
         return [...new Set(filtered)].join(" ");
     }
 
@@ -278,7 +278,7 @@
                         url = `${MAIN_URL}/${url}`;
                     }
                     url = normalizeSiteUrl(url);
-                    
+
                     const categories = Array.isArray(doc.category) ? doc.category.join(" ") : (doc.category || "");
                     const isSeries = inferIsSeries(title, url, categories);
 
@@ -485,7 +485,7 @@
         const endpoint = mediaType === "tv" ? "tv" : "movie";
         const url = tmdbApi(`${endpoint}/${tmdbId}`, "append_to_response=external_ids,credits");
         const data = await fetchJson(url, { "Accept": "application/json" }, {});
-        
+
         const actors = (data.credits?.cast || []).slice(0, 15).map(c => new Actor({
             name: c.name,
             image: c.profile_path ? `https://image.tmdb.org/t/p/w500${c.profile_path}` : null,
@@ -585,14 +585,14 @@
         try {
             const res = await http_get(url, { headers: HEADERS });
             const doc = await parseHtml(res.body);
-            
+
             const rawTitle = doc.querySelector('.page-title span')?.textContent?.trim() || "Unknown Title";
             const description = doc.querySelector('.recent-movies p')?.textContent?.trim() || "";
             const poster = doc.querySelector('main.page-body img.aligncenter')?.getAttribute('src');
-            
+
             const typeraw = doc.querySelector('h1.page-title span')?.textContent || "";
             const isMovie = typeraw.toLowerCase().includes("movie");
-            
+
             const seasonMatch = rawTitle.match(/(?:Season|S)\s*(\d+)/i);
             const seasonNumber = seasonMatch ? parseInt(seasonMatch[1]) : 1;
             const titleYear = extractYearFromTitle(rawTitle);
@@ -606,7 +606,7 @@
                 ?.replace("/embed/", "/watch?v=");
             const trailers = [makeTrailer(trailer)].filter(Boolean);
             const recommendations = parseRecommendations(doc, url);
-            
+
             let tmdbId = null;
             let imdbId = extractImdbId(imdbLink);
             if (tmdbLink) {
@@ -666,7 +666,7 @@
                         href: normalizeSiteUrl(a.getAttribute('href'))
                     }))
                     .filter(l => l.href && (l.href.includes("hdstream4u") || l.href.includes("hubstream") || l.text.match(/480|720|1080|2160|4k/i)) && !l.href.includes(MAIN_URL));
-                
+
                 item.episodes = [
                     new Episode({
                         name: "Play",
@@ -681,12 +681,12 @@
                 const episodesMap = {};
                 const content = doc.querySelector('.page-body') || doc.querySelector('main') || doc;
                 const allElements = content.querySelectorAll('h3, h4, p, span, strong');
-                
+
                 let currentEpNum = null;
                 for (const el of Array.from(allElements)) {
                     const text = el.textContent.trim();
                     const epMatch = text.match(/(?:Episode|E|Ep|EPiSODE)\s*(\d+)/i);
-                    
+
                     if (epMatch) {
                         currentEpNum = parseInt(epMatch[1]);
                         if (!episodesMap[currentEpNum]) episodesMap[currentEpNum] = [];
@@ -707,7 +707,7 @@
                         const aText = a.textContent.trim().toLowerCase();
                         const pText = a.parentElement?.textContent?.toLowerCase() || "";
                         const combinedText = aText + " " + pText;
-                        
+
                         if (combinedText.match(/480|720|1080|2160|4k/i) && (combinedText.includes("download") || combinedText.includes("zip") || combinedText.includes("pack"))) {
                             const link = normalizeSiteUrl(a.getAttribute('href'));
                             if (link && !link.includes(MAIN_URL)) {
@@ -744,7 +744,7 @@
                         })
                         .map(a => normalizeSiteUrl(a.getAttribute('href')))
                         .filter(Boolean);
-                    
+
                     if (fallbackLinks.length > 0) {
                         const totalEpisodes = Object.keys(tmdbSeasonEpisodes).length || 1;
                         const uniqueLinks = [...new Set(fallbackLinks)];
@@ -1136,13 +1136,13 @@
             const hash = url.split("#").pop().split("/").pop();
             const baseUrl = new URL(url).origin;
             const apiUrl = `${baseUrl}/api/v1/video?id=${hash}`;
-            
+
             const response = await http_get(apiUrl, { headers: { ...HEADERS, "Referer": url } });
             const encoded = response.body.trim();
-            
+
             const key = btoa("kiemtienmua911ca"); // Convert to base64 for the bridge
             const ivs = [btoa("1234567890oiuytr"), btoa("0123456789abcdef")];
-            
+
             // Convert hex to base64 for the Dart bridge which expects base64
             const encodedB64 = btoa(encoded.match(/\w{2}/g).map(a => String.fromCharCode(parseInt(a, 16))).join(""));
 
@@ -1152,7 +1152,7 @@
                     if (decryptedText && decryptedText.includes("source")) {
                         const m3u8Match = decryptedText.match(/"source":"(.*?)"/);
                         const m3u8 = m3u8Match ? m3u8Match[1].replace(/\\/g, "") : null;
-                        
+
                         if (m3u8) {
                             return [new StreamResult({
                                 source: "Hubstream",
@@ -1274,7 +1274,7 @@
         try {
             const hostname = new URL(url).hostname;
             const isRedirect = url.includes("?id=") || ["techyboy4u", "gadgetsweb.xyz", "cryptoinsights.site", "bloggingvector", "ampproject.org"].some(h => hostname.includes(h));
-            
+
             if (isRedirect) {
                 const res = await getRedirectLinks(url);
                 if (res) {
@@ -1283,7 +1283,7 @@
                     if (cleanRes.startsWith("?") || cleanRes.startsWith("&")) {
                         cleanRes = cleanRes.substring(1);
                     }
-                    
+
                     if (cleanRes.startsWith("http")) {
                         console.log("HDHub4U: internalLoadExtractor redirected to: " + cleanRes);
                         return await internalLoadExtractor(cleanRes, url);
@@ -1296,7 +1296,7 @@
                 }
                 return [];
             }
-            
+
             if (hostname.includes("hubcloud")) return await hubCloudExtractor(url, referer);
             if (hostname.includes("hubcdn")) return await hubCdnExtractor(url, referer);
             if (hostname.includes("hubdrive")) return await hubDriveExtractor(url, referer);
@@ -1344,7 +1344,7 @@
 
             console.log("HDHub4U: Processing " + links.length + " initial links");
             const allResults = [];
-            
+
             // Deduplicate initial links by URL
             const uniqueLinks = [];
             const seenInitialUrls = new Set();
@@ -1355,7 +1355,7 @@
                     uniqueLinks.push(typeof l === 'string' ? { url: u, name: "" } : l);
                 }
             }
-            
+
             const extractedGroups = await mapLimit(uniqueLinks, 5, async (lObj) => {
                 try {
                     const lUrl = normalizeSiteUrl(lObj.url);
