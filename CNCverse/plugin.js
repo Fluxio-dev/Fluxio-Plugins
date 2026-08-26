@@ -156,6 +156,8 @@
 
     function proxiedImage(url) {
         if (!url) return '';
+        // Serve imgcdn.kim directly as it blocks image proxy crawlers with 403 (one-line comment)
+        if (url.indexOf('imgcdn.kim') >= 0) return url;
         return 'https://wsrv.nl/?url=' + encodeURIComponent(url) + '&w=500';
     }
 
@@ -657,6 +659,17 @@
             if (Array.isArray(data.episodes) && data.episodes.length > 0 && data.episodes[0]) {
                 if (targetSeasonId) {
                     await fetchPagedEpisodes(provider, payload.id, targetSeasonId, 1, episodes, cookieStr);
+                } else if (globalThis.__skip_episodes__) {
+                    // Fast-path during hero/slideshow pre-resolution to skip secondary episode network calls (one-line comment)
+                    data.episodes.forEach(function (ep) {
+                        episodes.push(new Episode({
+                            name: clean(ep.t) || 'Episode',
+                            season: parseInt(String(ep.s || '').replace('S', ''), 10) || 1,
+                            episode: parseInt(String(ep.ep || '').replace('E', ''), 10) || 1,
+                            url: JSON.stringify({ provider: provider.id, kind: 'play', id: clean(ep.id), title: clean(ep.t) || clean(data.title) || 'Title' }),
+                            posterUrl: proxiedImage(provider.episodePoster(clean(ep.id)))
+                        }));
+                    });
                 } else {
                     const defaultSeasonNum = parseInt(String(data.episodes[0].s || '').replace('S', ''), 10) || 1;
                     const season1 = seasonsList.find(function (s) { return s.number === 1; });
