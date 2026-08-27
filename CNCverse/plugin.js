@@ -156,7 +156,7 @@
 
     function proxiedImage(url) {
         if (!url) return '';
-        // Serve imgcdn.kim directly as it blocks image proxy crawlers with 403 (one-line comment)
+        // Serve imgcdn.kim directly as it blocks image proxy crawlers with 403
         if (url.indexOf('imgcdn.kim') >= 0) return url;
         return 'https://wsrv.nl/?url=' + encodeURIComponent(url) + '&w=500';
     }
@@ -548,6 +548,13 @@
             if (provider.id === 'PRIME VIDEO') {
                 const primeHeaders = Object.assign({}, headers, { Referer: BASE_URL + '/home' });
                 let res = await http_get(provider.baseUrl + provider.homePath, primeHeaders);
+                if (!isResponseValid(res.body, provider) && backgroundBypassPromise) {
+                    logPlugin('BYPASS', 'Initial Prime Video home load invalid, awaiting background bypass completion...');
+                    try { await backgroundBypassPromise; } catch (_) {}
+                    cookieStr = await cookieString(provider);
+                    primeHeaders.Cookie = cookieStr;
+                    res = await http_get(provider.baseUrl + provider.homePath, primeHeaders);
+                }
                 if (!isResponseValid(res.body, provider)) {
                     logPlugin('BYPASS', 'IP change or token invalidation detected on Prime Video home load. Clearing cache and triggering fresh bypass.');
                     cachedCookie = '';
@@ -559,8 +566,8 @@
                         localStorage.removeItem('cnc_last_bypass_time');
                     } catch (_) {}
                     cookieStr = await cookieString(provider);
-                    const freshHeaders = Object.assign({}, headers, { Cookie: cookieStr, Referer: BASE_URL + '/home' });
-                    res = await http_get(provider.baseUrl + provider.homePath, freshHeaders);
+                    primeHeaders.Cookie = cookieStr;
+                    res = await http_get(provider.baseUrl + provider.homePath, primeHeaders);
                 }
                 const root = parseJsonSafe(res.body, {});
                 const out = {};
@@ -572,7 +579,6 @@
                         return new MultimediaItem({
                             title: ' ',
                             url: JSON.stringify({ provider: provider.id, id: id }),
-                            // Wrap Prime Video homepage posters in proxiedImage helper
                             posterUrl: proxiedImage(provider.poster(id)),
                             type: 'movie'
                         });
@@ -582,6 +588,13 @@
             }
 
             let res = await http_get(provider.baseUrl + provider.homePath, headers);
+            if (!isResponseValid(res.body, provider) && backgroundBypassPromise) {
+                logPlugin('BYPASS', 'Initial home load invalid, awaiting background bypass completion...');
+                try { await backgroundBypassPromise; } catch (_) {}
+                cookieStr = await cookieString(provider);
+                headers.Cookie = cookieStr;
+                res = await http_get(provider.baseUrl + provider.homePath, headers);
+            }
             if (!isResponseValid(res.body, provider)) {
                 logPlugin('BYPASS', 'IP change or token invalidation detected on home load. Clearing cache and triggering fresh bypass.');
                 cachedCookie = '';
@@ -593,8 +606,8 @@
                     localStorage.removeItem('cnc_last_bypass_time');
                 } catch (_) {}
                 cookieStr = await cookieString(provider);
-                const freshHeaders = Object.assign({}, headers, { Cookie: cookieStr });
-                res = await http_get(provider.baseUrl + provider.homePath, freshHeaders);
+                headers.Cookie = cookieStr;
+                res = await http_get(provider.baseUrl + provider.homePath, headers);
             }
             const html = String(res.body || '');
             const data = parseTrayRows(html, provider);
@@ -632,11 +645,17 @@
             if (!payload || !payload.id) return cb({ success: false, errorCode: 'PARSE_ERROR', message: 'Invalid payload' });
 
             const provider = PROVIDERS[clean(payload.provider).toUpperCase()] || cfg();
-            const cookieStr = await cookieString(provider);
+            let cookieStr = await cookieString(provider);
             const postUrl = provider.baseUrl + provider.postPath + '?id=' + encodeURIComponent(payload.id) + '&t=' + unixTs();
             const referer = BASE_URL + '/tv/home';
-            const res = await http_get(postUrl, Object.assign({}, providerHeaders(provider), { Referer: referer, Cookie: cookieStr }));
-            const data = parseJsonSafe(res.body, {});
+            let res = await http_get(postUrl, Object.assign({}, providerHeaders(provider), { Referer: referer, Cookie: cookieStr }));
+            let data = parseJsonSafe(res.body, {});
+            if ((!data || !data.title) && backgroundBypassPromise) {
+                try { await backgroundBypassPromise; } catch (_) {}
+                cookieStr = await cookieString(provider);
+                res = await http_get(postUrl, Object.assign({}, providerHeaders(provider), { Referer: referer, Cookie: cookieStr }));
+                data = parseJsonSafe(res.body, {});
+            }
 
             const targetSeasonId = globalThis._targetSeasonId;
             const episodes = [];
@@ -660,7 +679,7 @@
                 if (targetSeasonId) {
                     await fetchPagedEpisodes(provider, payload.id, targetSeasonId, 1, episodes, cookieStr);
                 } else if (globalThis.__skip_episodes__) {
-                    // Fast-path during hero/slideshow pre-resolution to skip secondary episode network calls (one-line comment)
+                    // Fast-path during hero/slideshow pre-resolution to skip secondary episode network calls
                     data.episodes.forEach(function (ep) {
                         episodes.push(new Episode({
                             name: clean(ep.t) || 'Episode',
