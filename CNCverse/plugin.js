@@ -751,6 +751,24 @@
         'https://s20.freecdn4.top'
     ];
 
+    // Detect dummy decoy and rate-limit placeholder streams by checking ID mismatch and known dummy signatures (one-line comment)
+    function isDummyStreamUrl(url, targetEpId) {
+        if (!url) return true;
+        const cleanUrl = String(url).toLowerCase();
+        if (cleanUrl.indexOf('220884') >= 0 || cleanUrl.indexOf('dummy') >= 0 || cleanUrl.indexOf('placeholder') >= 0) return true;
+        if (targetEpId && targetEpId.length > 5) {
+            const m = cleanUrl.match(/\/files\/([^\/]+)/i);
+            if (m && m[1]) {
+                const folderId = decodeURIComponent(m[1]).toLowerCase();
+                const ep = String(targetEpId).toLowerCase();
+                if (folderId !== ep && folderId !== encodeURIComponent(ep).toLowerCase() && ep.indexOf(folderId) === -1) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     async function buildRealPlaylist(provider, epId, cookieStr) {
         // Dynamically extract authentic audio tracks and real video streams across CDN candidates
         const refHeaders = { Referer: 'https://net52.cc/pv/', 'User-Agent': COMMON_HEADERS['User-Agent'] };
@@ -767,17 +785,22 @@
             if (pl[0] && pl[0].sources && pl[0].sources[0]) {
                 let m3u8Url = pl[0].sources[0].file;
                 if (!m3u8Url.startsWith('http')) m3u8Url = provider.playUrl + '/' + m3u8Url.replace(/^\/+/, '');
-                const mRes = await http_get(m3u8Url, Object.assign({}, refHeaders, { Cookie: cookieStr || '' }));
-                if (mRes.status === 200) {
-                    const rawLines = String(mRes.body || '').split('\n');
-                    const matchedAudio = rawLines.filter(function (l) { return l.indexOf('#EXT-X-MEDIA:TYPE=AUDIO') !== -1; });
-                    if (matchedAudio.length > 0) {
-                        audioLines = matchedAudio.map(function (l) { return l.trim(); });
-                        for (let a = 0; a < audioLines.length; a++) {
-                            const am = audioLines[a].match(/URI="([^"]+)"/);
-                            if (am && am[1] && am[1].startsWith('http')) {
-                                base = am[1].split('/a/')[0];
-                                break;
+                if (!isDummyStreamUrl(m3u8Url, epId)) {
+                    const mRes = await http_get(m3u8Url, Object.assign({}, refHeaders, { Cookie: cookieStr || '' }));
+                    if (mRes.status === 200) {
+                        const rawLines = String(mRes.body || '').split('\n');
+                        const matchedAudio = rawLines.filter(function (l) { return l.indexOf('#EXT-X-MEDIA:TYPE=AUDIO') !== -1; });
+                        if (matchedAudio.length > 0) {
+                            audioLines = matchedAudio.map(function (l) { return l.trim(); });
+                            for (let a = 0; a < audioLines.length; a++) {
+                                const am = audioLines[a].match(/URI="([^"]+)"/);
+                                if (am && am[1] && am[1].startsWith('http')) {
+                                    const candidateBase = am[1].split('/a/')[0];
+                                    if (!isDummyStreamUrl(candidateBase, epId)) {
+                                        base = candidateBase;
+                                        break;
+                                    }
+                                }
                             }
                         }
                     }
@@ -944,8 +967,8 @@
                     if (!fullUrl.startsWith('/')) fullUrl = '/' + fullUrl;
                     fullUrl = provider.playUrl + fullUrl;
                 }
-                // Filter out known dummy stream replacements
-                if (fullUrl.indexOf('220884') >= 0) return;
+                // Filter out dummy decoy and rate-limit stream replacements (one-line comment)
+                if (isDummyStreamUrl(fullUrl, payload.id)) return;
                 out.push(new StreamResult({
                     url: fullUrl,
                     source: 'PrimeVideo [' + (clean(src.label) || ('S' + (i + 1))) + ']',
@@ -981,6 +1004,7 @@
                 const rawFile = clean(src.file);
                 if (!rawFile) return;
                 const finalUrl = baseUrl + '/' + rawFile.replace(/^\/+/, '');
+                if (isDummyStreamUrl(finalUrl, payload.id)) return;
                 out.push(new StreamResult({
                     url: finalUrl,
                     source: clean(src.label) || ('Server ' + (i + 1)),
@@ -1043,6 +1067,13 @@
                 }
             } catch (_) {
                 results = [];
+            }
+
+            if (!results || results.length === 0) {
+                logPlugin('BYPASS', 'Direct playlist streams unavailable or dummy rate-limit detected. Falling back to Unified TV stream...');
+                try {
+                    results = await loadUnifiedTvStream(provider, payload);
+                } catch (_) {}
             }
 
             // Failsafe: Try unified TV player stream if direct playlists failed
