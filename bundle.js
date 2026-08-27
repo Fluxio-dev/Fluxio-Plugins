@@ -102,6 +102,7 @@ function bundlePlugin(pluginDir, skipMinify, obfuscate) {
   }
 
   const manifestB64 = base64Encode(JSON.stringify(manifest));
+  const manifestHeader = `var __BUNDLED_MANIFEST__="${manifestB64}";\nvar manifest=typeof manifest!=="undefined"?manifest:JSON.parse(decodeURIComponent(escape(atob("${manifestB64}"))));\n`;
 
   if (obfuscate) {
     // Obfuscate plugin code FIRST, then prepend manifest header
@@ -109,17 +110,17 @@ function bundlePlugin(pluginDir, skipMinify, obfuscate) {
     const before = pluginJs.length;
     let obfuscated = obfuscateJS(pluginJs, OBFUSCATE_LEVEL);
     obfuscated = minifyJS(obfuscated);
-    const code = `var __BUNDLED_MANIFEST__="${manifestB64}";\n${obfuscated}`;
+    const code = manifestHeader + obfuscated;
     console.log(`  obfuscated: ${before + manifestB64.length + 32} → ${code.length} bytes (${Math.round((1 - code.length / (before + manifestB64.length + 32)) * 100)}% saved)`);
     validateAndWrite(pluginDir, outPath, code);
   } else if (!skipMinify) {
-    const code = `var __BUNDLED_MANIFEST__="${manifestB64}";\n${pluginJs}`;
+    const code = manifestHeader + pluginJs;
     const before = code.length;
     const minified = minifyJS(code);
     console.log(`  minified: ${before} → ${minified.length} bytes (${Math.round((1 - minified.length / before) * 100)}% saved)`);
     validateAndWrite(pluginDir, outPath, minified);
   } else {
-    const code = `var __BUNDLED_MANIFEST__="${manifestB64}";\n${pluginJs}`;
+    const code = manifestHeader + pluginJs;
     validateAndWrite(pluginDir, outPath, code);
   }
 
@@ -128,7 +129,8 @@ function bundlePlugin(pluginDir, skipMinify, obfuscate) {
 
 function validateAndWrite(pluginDir, outPath, code) {
   const hasManifest = /__BUNDLED_MANIFEST__\s*=\s*"([A-Za-z0-9+/=]+)"/.test(code);
-  const hasExports = code.includes('getHome') || code.includes('getHome:');
+  // Support all plugin types with getHome, search, load, loadStreams, or globalThis exports (one-line comment)
+  const hasExports = code.includes('getHome') || code.includes('search') || code.includes('load') || code.includes('loadStreams') || code.includes('globalThis');
   if (!hasManifest || !hasExports) {
     console.error(`  ERROR: bundle corrupt (manifest=${hasManifest}, exports=${hasExports})`);
     return;
@@ -140,8 +142,15 @@ function validateAndWrite(pluginDir, outPath, code) {
 function findAllPluginDirs(rootDir) {
   return fs.readdirSync(rootDir)
     .map(name => path.join(rootDir, name))
-    .filter(p => fs.statSync(p).isDirectory() &&
-                 fs.existsSync(path.join(p, 'plugin.js')));
+    .filter(p => {
+      try {
+        return fs.statSync(p).isDirectory() &&
+               fs.existsSync(path.join(p, 'plugin.js')) &&
+               fs.existsSync(path.join(p, 'plugin.json'));
+      } catch (_) {
+        return false;
+      }
+    });
 }
 
 // ── CLI ──────────────────────────────────────────────────────────
@@ -163,9 +172,10 @@ const posArgs = args.filter(a => !a.startsWith('--'));
 const targetArg = posArgs[0] || null;
 
 if (args.includes('--all')) {
+  // Default pluginsRoot to __dirname when --all is passed without explicit directory (one-line comment)
   const pluginsRoot = targetArg
     ? path.resolve(targetArg)
-    : path.resolve(__dirname, '..');
+    : __dirname;
   const dirs = findAllPluginDirs(pluginsRoot);
   let ok = 0, fail = 0;
   dirs.forEach(d => { bundlePlugin(d, skipMinify, obfuscate) ? ok++ : fail++; });
