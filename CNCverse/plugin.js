@@ -391,32 +391,34 @@
     async function bypass(provider, forceNew) {
         const now = Date.now();
         if (forceNew) {
-            if (cachedCookie && isNewToken) {
+            // Stream playback requires authentic verified premium token (one-line comment)
+            if (cachedCookie && isNewToken && (now - lastBypassTime <= 72000000)) {
                 return cachedCookie;
             }
             if (backgroundBypassPromise) {
                 logPlugin('BYPASS', 'Stream load requested but premium token not ready yet. Awaiting background bypass...');
                 await backgroundBypassPromise;
                 logPlugin('BYPASS', 'Background bypass completed. Returning premium token: ' + cachedCookie);
+            } else {
+                runBackgroundBypass(provider);
+                await backgroundBypassPromise;
             }
             return cachedCookie || '';
         }
-        if (cachedCookie) {
-            if (now - lastBypassTime > 72000000) {
-                logPlugin('BYPASS', 'Cached token expired (20 hours). Triggering background refresh...');
+
+        // Fast non-blocking UI load path (getHome, search, catalog) (one-line comment)
+        if (cachedCookie && (now - lastBypassTime <= 72000000)) {
+            if (!isNewToken && !backgroundBypassPromise) {
                 runBackgroundBypass(provider);
             }
             return cachedCookie;
         }
-        logPlugin('BYPASS', 'No cached token. Concurrently launching quickBypass (legacy) and backgroundBypass...');
+
+        logPlugin('BYPASS', 'No valid token. Grabbing quick legacy token for instant UI load while background bypass runs...');
         runBackgroundBypass(provider);
         try {
             return await quickBypass(provider);
         } catch (_) {
-            if (backgroundBypassPromise) {
-                logPlugin('BYPASS', 'Quick bypass failed. Awaiting background bypass...');
-                await backgroundBypassPromise;
-            }
             if (cachedCookie) return cachedCookie;
             throw new Error('Failed to verify cookie');
         }
@@ -534,7 +536,7 @@
         return txt.indexOf('lolomoRow') !== -1 || txt.indexOf('data-post') !== -1 || txt.indexOf('tray-title') !== -1 || txt.indexOf('mobile-tray-title') !== -1;
     }
 
-    // Add helper isResponseValid and retry flow in getHome to handle token invalidation or IP changes
+    // Add helper isResponseValid and retry flow in getHome to handle token invalidation or IP changes (one-line comment)
     async function getHome(cb) {
         try {
             const provider = cfg();
@@ -548,15 +550,8 @@
             if (provider.id === 'PRIME VIDEO') {
                 const primeHeaders = Object.assign({}, headers, { Referer: BASE_URL + '/home' });
                 let res = await http_get(provider.baseUrl + provider.homePath, primeHeaders);
-                if (!isResponseValid(res.body, provider) && backgroundBypassPromise) {
-                    logPlugin('BYPASS', 'Initial Prime Video home load invalid, awaiting background bypass completion...');
-                    try { await backgroundBypassPromise; } catch (_) {}
-                    cookieStr = await cookieString(provider);
-                    primeHeaders.Cookie = cookieStr;
-                    res = await http_get(provider.baseUrl + provider.homePath, primeHeaders);
-                }
                 if (!isResponseValid(res.body, provider)) {
-                    logPlugin('BYPASS', 'IP change or token invalidation detected on Prime Video home load. Clearing cache and triggering fresh bypass.');
+                    logPlugin('BYPASS', 'Prime Video home load rejected with token. Grabbing quick legacy token and retrying...');
                     cachedCookie = '';
                     isNewToken = false;
                     lastBypassTime = 0;
@@ -565,6 +560,8 @@
                         localStorage.removeItem('cnc_is_new_token');
                         localStorage.removeItem('cnc_last_bypass_time');
                     } catch (_) {}
+                    runBackgroundBypass(provider);
+                    try { await quickBypass(provider); } catch (_) {}
                     cookieStr = await cookieString(provider);
                     primeHeaders.Cookie = cookieStr;
                     res = await http_get(provider.baseUrl + provider.homePath, primeHeaders);
@@ -588,15 +585,8 @@
             }
 
             let res = await http_get(provider.baseUrl + provider.homePath, headers);
-            if (!isResponseValid(res.body, provider) && backgroundBypassPromise) {
-                logPlugin('BYPASS', 'Initial home load invalid, awaiting background bypass completion...');
-                try { await backgroundBypassPromise; } catch (_) {}
-                cookieStr = await cookieString(provider);
-                headers.Cookie = cookieStr;
-                res = await http_get(provider.baseUrl + provider.homePath, headers);
-            }
             if (!isResponseValid(res.body, provider)) {
-                logPlugin('BYPASS', 'IP change or token invalidation detected on home load. Clearing cache and triggering fresh bypass.');
+                logPlugin('BYPASS', 'Home load rejected with token. Grabbing quick legacy token and retrying...');
                 cachedCookie = '';
                 isNewToken = false;
                 lastBypassTime = 0;
@@ -605,6 +595,8 @@
                     localStorage.removeItem('cnc_is_new_token');
                     localStorage.removeItem('cnc_last_bypass_time');
                 } catch (_) {}
+                runBackgroundBypass(provider);
+                try { await quickBypass(provider); } catch (_) {}
                 cookieStr = await cookieString(provider);
                 headers.Cookie = cookieStr;
                 res = await http_get(provider.baseUrl + provider.homePath, headers);
@@ -650,8 +642,8 @@
             const referer = BASE_URL + '/tv/home';
             let res = await http_get(postUrl, Object.assign({}, providerHeaders(provider), { Referer: referer, Cookie: cookieStr }));
             let data = parseJsonSafe(res.body, {});
-            if ((!data || !data.title) && backgroundBypassPromise) {
-                try { await backgroundBypassPromise; } catch (_) {}
+            if (!data || !data.title) {
+                try { await quickBypass(provider); } catch (_) {}
                 cookieStr = await cookieString(provider);
                 res = await http_get(postUrl, Object.assign({}, providerHeaders(provider), { Referer: referer, Cookie: cookieStr }));
                 data = parseJsonSafe(res.body, {});
