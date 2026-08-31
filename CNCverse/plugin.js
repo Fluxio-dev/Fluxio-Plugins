@@ -831,37 +831,45 @@
             } catch (_) {}
         }
 
-        // Step 4: Extract exact segment sequence and durations from active audio track
-        const segments = [];
-        let targetDur = 10;
+        // Step 4: Extract exact total duration and naming scheme from active audio track (one-line comment)
+        let totalAudioDur = 0;
+        let segPrefix = '';
+        let padLen = 3;
+        let audioTargetDur = 10;
         for (let i = 0; i < 5; i++) {
             const r = await http_get(base + '/a/' + i + '/' + i + '.m3u8', refHeaders);
             if (r.status === 200 && String(r.body).indexOf('#EXTM3U') === 0) {
                 const lines = String(r.body).split('\n');
-                let curDur = 0;
                 for (let j = 0; j < lines.length; j++) {
                     const line = lines[j].trim();
                     if (line.indexOf('#EXT-X-TARGETDURATION:') === 0) {
-                        targetDur = parseInt(line.split(':')[1], 10) || 10;
+                        audioTargetDur = parseInt(line.split(':')[1], 10) || 10;
                     } else if (line.indexOf('#EXTINF:') === 0) {
-                        curDur = parseFloat(line.substring(8).split(',')[0]);
-                    } else if (line && line[0] !== '#') {
-                        const m = line.match(/(.+)\.js/);
-                        const baseName = m ? m[1] : line;
-                        segments.push({ dur: curDur || 9.0, baseName: baseName });
-                        curDur = 0;
+                        totalAudioDur += parseFloat(line.substring(8).split(',')[0]) || 0;
+                    } else if (line && line[0] !== '#' && !segPrefix) {
+                        const m = line.match(/^(.+)_(\d+)\.js$/);
+                        if (m) {
+                            segPrefix = m[1];
+                            padLen = m[2].length;
+                        }
                     }
                 }
-                if (segments.length > 0) break;
+                if (totalAudioDur > 0) break;
             }
         }
-        if (segments.length === 0) return '';
+        if (totalAudioDur <= 0 || !segPrefix) return '';
 
-        // Step 5: Detect frame extension (.jpg / .woff2 / .js)
+        // Step 5: Detect frame extension (.woff2 / .jpg / .js) (one-line comment)
+        const formatSeg = function (num) {
+            const numStr = String(num);
+            const padded = numStr.length < padLen ? numStr.padStart(padLen, '0') : numStr;
+            return segPrefix + '_' + padded;
+        };
+
         let videoExt = '';
-        const testExts = ['jpg', 'woff2', 'js'];
+        const testExts = ['woff2', 'jpg', 'js'];
         for (let e = 0; e < testExts.length; e++) {
-            const tr = await http_get(base + '/720p/' + segments[0].baseName + '.' + testExts[e], refHeaders);
+            const tr = await http_get(base + '/720p/' + formatSeg(0) + '.' + testExts[e], refHeaders);
             if (tr.status === 200 && String(tr.body || '').length > 500) {
                 videoExt = testExts[e];
                 break;
@@ -869,17 +877,63 @@
         }
         if (!videoExt) return '';
 
+        // Step 6: Fast resolve full video segment count to match total duration (one-line comment)
+        const probeSegOk = async function (idx) {
+            if (idx < 0) return false;
+            try {
+                const r = await http_get(base + '/720p/' + formatSeg(idx) + '.' + videoExt, Object.assign({}, refHeaders, { Range: 'bytes=0-50' }));
+                return r.status === 200 || r.status === 206;
+            } catch (_) { return false; }
+        };
+
+        const n3 = Math.round(totalAudioDur / 3.003);
+        const n5 = Math.round(totalAudioDur / 5.0);
+        const n9 = Math.round(totalAudioDur / 9.0);
+        const n10 = Math.round(totalAudioDur / 10.0);
+        const candidates = [];
+        for (let d = -5; d <= 5; d++) candidates.push(n3 + d);
+        for (let d = -3; d <= 3; d++) {
+            candidates.push(n5 + d);
+            candidates.push(n9 + d);
+            candidates.push(n10 + d);
+        }
+
+        const probeResults = await Promise.all(candidates.map(async function (idx) {
+            return { idx: idx, ok: await probeSegOk(idx) };
+        }));
+
+        let maxOk = -1;
+        for (let k = 0; k < probeResults.length; k++) {
+            if (probeResults[k].ok && probeResults[k].idx > maxOk) maxOk = probeResults[k].idx;
+        }
+
+        let totalVideoSegs = maxOk > 0 ? (maxOk + 1) : n5;
+        if (maxOk > 0) {
+            const nextChecks = await Promise.all([1, 2, 3, 4, 5].map(async function (delta) {
+                return { idx: maxOk + delta, ok: await probeSegOk(maxOk + delta) };
+            }));
+            for (let nc = 0; nc < nextChecks.length; nc++) {
+                if (nextChecks[nc].ok && nextChecks[nc].idx >= totalVideoSegs) {
+                    totalVideoSegs = nextChecks[nc].idx + 1;
+                }
+            }
+        }
+
+        const avgSegDur = totalAudioDur / totalVideoSegs;
+        const videoTargetDur = Math.ceil(avgSegDur) + 1;
+
         const probeQuality = async function (q) {
             try {
-                const r = await http_get(base + '/' + q + '/' + segments[0].baseName + '.' + videoExt, refHeaders);
-                return r.status === 200 && String(r.body || '').length > 500;
+                const r = await http_get(base + '/' + q + '/' + formatSeg(0) + '.' + videoExt, Object.assign({}, refHeaders, { Range: 'bytes=0-50' }));
+                return (r.status === 200 || r.status === 206);
             } catch (_) { return false; }
         };
 
         const buildVariant = function (q) {
-            let out = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:' + targetDur + '\n#EXT-X-MEDIA-SEQUENCE:0\n';
-            for (let n = 0; n < segments.length; n++) {
-                out += '#EXTINF:' + segments[n].dur + ',\n' + base + '/' + q + '/' + segments[n].baseName + '.' + videoExt + '\n';
+            let out = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:' + videoTargetDur + '\n#EXT-X-MEDIA-SEQUENCE:0\n';
+            const durStr = avgSegDur.toFixed(3);
+            for (let n = 0; n < totalVideoSegs; n++) {
+                out += '#EXTINF:' + durStr + ',\n' + base + '/' + q + '/' + formatSeg(n) + '.' + videoExt + '\n';
             }
             return out + '#EXT-X-ENDLIST\n';
         };
