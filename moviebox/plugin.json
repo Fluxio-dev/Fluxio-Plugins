@@ -1,8 +1,8 @@
 {
   "packageName": "dev.nivincnc.cncverse.moviebox",
   "name": "MovieBox",
-  "version": 1,
-  "baseUrl": "https://api3.aoneroom.com",
+  "version": 2,
+  "baseUrl": "https://h5-api.aoneroom.com",
   "description": "Multi Language Movies and Series Provider",
   "authors": ["NivinCNC"],
   "languages": ["en", "hi", "ta"],

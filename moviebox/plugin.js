@@ -4,93 +4,71 @@
      */
     // var manifest is injected at runtime
 
-    const DEFAULT_SECRET_LAYER1 = atob("__MOVIEBOX_DEFAULT_SECRET_LAYER1_B64__");
-    const ALT_SECRET_LAYER1 = atob("__MOVIEBOX_ALT_SECRET_LAYER1_B64__");
-    const DEVICE_ID = randomHex(32);
-
-    const HOME_KEYS = [
-        ["4516404531735022304", "Trending"],
-        ["5692654647815587592", "Trending in Cinema"],
-        ["414907768299210008", "Bollywood"],
-        ["3859721901924910512", "South Indian"],
-        ["8019599703232971616", "Hollywood"],
-        ["4741626294545400336", "Top Series This Week"],
-        ["8434602210994128512", "Anime"],
-        ["1255898847918934600", "Reality TV"],
-        ["4903182713986896328", "Indian Drama"],
-        ["7878715743607948784", "Korean Drama"],
-        ["8788126208987989488", "Chinese Drama"],
-        ["3910636007619709856", "Western TV"],
-        ["5177200225164885656", "Turkish Drama"],
-        ["1|1", "Movies"],
-        ["1|2", "Series"],
-        ["1|1006", "Anime"],
-        ["1|1;country=India", "Indian (Movies)"],
-        ["1|2;country=India", "Indian (Series)"],
-        ["1|1;classify=Hindi dub;country=United States", "USA (Movies)"],
-        ["1|2;classify=Hindi dub;country=United States", "USA (Series)"],
-        ["1|1;country=Japan", "Japan (Movies)"],
-        ["1|2;country=Japan", "Japan (Series)"],
-        ["1|1;country=China", "China (Movies)"],
-        ["1|2;country=China", "China (Series)"],
-        ["1|1;country=Philippines", "Philippines (Movies)"],
-        ["1|2;country=Philippines", "Philippines (Series)"],
-        ["1|1;country=Thailand", "Thailand(Movies)"],
-        ["1|2;country=Thailand", "Thailand(Series)"],
-        ["1|1;country=Nigeria", "Nollywood (Movies)"],
-        ["1|2;country=Nigeria", "Nollywood (Series)"],
-        ["1|1;country=Korea", "South Korean (Movies)"],
-        ["1|2;country=Korea", "South Korean (Series)"],
-        ["1|1;classify=Hindi dub;genre=Action", "Action (Movies)"],
-        ["1|1;classify=Hindi dub;genre=Crime", "Crime (Movies)"],
-        ["1|1;classify=Hindi dub;genre=Comedy", "Comedy (Movies)"],
-        ["1|1;classify=Hindi dub;genre=Romance", "Romance (Movies)"],
-        ["1|2;classify=Hindi dub;genre=Crime", "Crime (Series)"],
-        ["1|2;classify=Hindi dub;genre=Comedy", "Comedy (Series)"],
-        ["1|2;classify=Hindi dub;genre=Romance", "Romance (Series)"]
-    ];
+    const BASE_URL = manifest.baseUrl;
+    const WEB_URL = "https://filmboom.top";
 
     function parseJsonSafe(text, fallback) {
         try { return JSON.parse(text); } catch (_) { return fallback; }
     }
 
-    function randomHex(len) {
-        const chars = "0123456789abcdef";
-        let out = "";
-        for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
-        return out;
-    }
-
-    function randomBrandModel() {
-        const models = {
-            Samsung: ["SM-S918B", "SM-A528B", "SM-M336B"],
-            Xiaomi: ["2201117TI", "M2012K11AI", "Redmi Note 11"],
-            OnePlus: ["LE2111", "CPH2449", "IN2023"],
-            Google: ["Pixel 6", "Pixel 7", "Pixel 8"],
-            Realme: ["RMX3085", "RMX3360", "RMX3551"]
-        };
-        const brands = Object.keys(models);
-        const brand = brands[Math.floor(Math.random() * brands.length)];
-        const modelList = models[brand];
-        const model = modelList[Math.floor(Math.random() * modelList.length)];
-        return { brand: brand, model: model };
-    }
-
-    function kotlinBrandModelString() {
-        const bm = randomBrandModel();
-        return "BrandModel(brand=" + bm.brand + ", model=" + bm.model + ")";
-    }
-
-    function defaultLayer1(useAlt) {
-        return useAlt ? ALT_SECRET_LAYER1 : DEFAULT_SECRET_LAYER1;
+    function cleanTitle(title) {
+        return String(title || "").replace(/\[.*?\]/g, "").trim();
     }
 
     function typeFromSubject(subjectType) {
         return Number(subjectType) === 2 || Number(subjectType) === 7 ? "series" : "movie";
     }
 
-    function cleanTitle(title) {
-        return String(title || "").split("[")[0].trim();
+    function qualityLabel(res) {
+        const t = String(res || "");
+        if (t.indexOf("2160") >= 0) return "4K";
+        if (t.indexOf("1440") >= 0) return "1440p";
+        if (t.indexOf("1080") >= 0) return "1080p";
+        if (t.indexOf("720") >= 0) return "720p";
+        if (t.indexOf("480") >= 0) return "480p";
+        if (t.indexOf("360") >= 0) return "360p";
+        return t ? (t + "p") : "HD";
+    }
+
+    let cachedToken = "";
+
+    function buildHeaders(referer) {
+        const headers = {
+            "accept": "application/json, text/plain, */*",
+            "origin": WEB_URL,
+            "referer": referer || (WEB_URL + "/"),
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "x-client-info": JSON.stringify({ timezone: "Asia/Calcutta" }),
+            "x-request-lang": "en",
+            "x-vip-restrict": "0"
+        };
+        if (cachedToken) {
+            headers["authorization"] = "Bearer " + cachedToken;
+        }
+        return headers;
+    }
+
+    async function requestJson(url, options) {
+        const opts = options || {};
+        const method = (opts.method || "GET").toUpperCase();
+        const headers = opts.headers || {};
+        try {
+            const res = method === "POST"
+                ? await http_post(url, headers, opts.body || "{}")
+                : await http_get(url, headers);
+            if (res && res.headers) {
+                const xUser = res.headers["x-user"] || res.headers["X-User"];
+                if (xUser) {
+                    try {
+                        const parsed = typeof xUser === "string" ? JSON.parse(xUser) : xUser;
+                        if (parsed && parsed.token) cachedToken = parsed.token;
+                    } catch (_) {}
+                }
+            }
+            return parseJsonSafe(res && res.body ? res.body : "{}", {});
+        } catch (_) {
+            return {};
+        }
     }
 
     function mapActorFromStaff(staff) {
@@ -101,23 +79,6 @@
             name: name,
             image: staff.avatarUrl || undefined,
             role: staff.character || undefined
-        });
-    }
-
-    function mapRecommendationItem(item, fallbackType) {
-        if (!item) return null;
-        const subjectId = item.subjectId || item.id || item.redirectId;
-        const title = cleanTitle(item.title || item.name);
-        if (!subjectId || !title) return null;
-        const cover = item.cover && item.cover.url
-            ? item.cover.url
-            : (item.coverImage || item.poster || item.posterUrl || undefined);
-        return new MultimediaItem({
-            title: title,
-            url: JSON.stringify({ subjectId: String(subjectId), subjectType: item.subjectType || 1 }),
-            posterUrl: cover,
-            type: typeFromSubject(item.subjectType || fallbackType || 1),
-            score: Number(item.imdbRatingValue || item.score) || undefined
         });
     }
 
@@ -137,13 +98,24 @@
         const seen = {};
         const out = [];
         for (let i = 0; i < candidates.length; i++) {
-            const rec = mapRecommendationItem(candidates[i], fallbackType);
-            if (!rec) continue;
-            const recPayload = parseJsonSafe(rec.url, {});
-            const recId = recPayload && recPayload.subjectId ? String(recPayload.subjectId) : "";
-            if (!recId || seen[recId]) continue;
-            seen[recId] = true;
-            out.push(rec);
+            const item = candidates[i];
+            if (!item) continue;
+            const subjectId = item.subjectId || item.id || item.redirectId;
+            const title = cleanTitle(item.title || item.name);
+            if (!subjectId || !title) continue;
+            const sid = String(subjectId);
+            if (seen[sid]) continue;
+            seen[sid] = true;
+            const cover = item.cover && item.cover.url
+                ? item.cover.url
+                : (item.coverImage || item.poster || item.posterUrl || undefined);
+            out.push(new MultimediaItem({
+                title: title,
+                url: JSON.stringify({ subjectId: sid, detailPath: item.detailPath || "", subjectType: item.subjectType || fallbackType || 1 }),
+                posterUrl: cover,
+                type: typeFromSubject(item.subjectType || fallbackType || 1),
+                score: Number(item.imdbRatingValue || item.score) || undefined
+            }));
         }
         return out;
     }
@@ -159,207 +131,112 @@
         return text.split("/").pop() || "";
     }
 
-    function buildMboxClientInfo(brand, model) {
-        return JSON.stringify({
-            package_name: "com.community.mbox.in",
-            version_name: "3.0.03.0529.03",
-            version_code: 50020042,
-            os: "android",
-            os_version: "16",
-            device_id: DEVICE_ID,
-            install_store: "ps",
-            gaid: "d7578036d13336cc",
-            brand: brand,
-            model: model,
-            system_language: "en",
-            net: "NETWORK_WIFI",
-            region: "IN",
-            timezone: "Asia/Calcutta",
-            sp_code: ""
-        });
-    }
-
-    function buildOneroomClientInfo(brand, model) {
-        return JSON.stringify({
-            package_name: "com.community.oneroom",
-            version_name: "3.0.13.0325.03",
-            version_code: 50020088,
-            os: "android",
-            os_version: "13",
-            install_ch: "ps",
-            device_id: DEVICE_ID,
-            install_store: "ps",
-            gaid: "1b2212c1-dadf-43c3-a0c8-bd6ce48ae22d",
-            brand: model,
-            model: brand,
-            system_language: "en",
-            net: "NETWORK_WIFI",
-            region: "US",
-            timezone: "Asia/Calcutta",
-            sp_code: "",
-            "X-Play-Mode": "1",
-            "X-Idle-Data": "1",
-            "X-Family-Mode": "0",
-            "X-Content-Mode": "0"
-        });
-    }
-
-    function toRawUtf8(str) {
-        return unescape(encodeURIComponent(str));
-    }
-
-    function generateXClientToken() {
-        const ts = String(Date.now());
-        return ts + "," + md5Hex(ts.split("").reverse().join(""));
-    }
-
-    function canonical(method, accept, contentType, url, body, ts) {
-        let path = "/";
-        let rawQuery = "";
-        try {
-            const u = new URL(url);
-            path = u.pathname || "/";
-            rawQuery = (u.search || "").replace(/^\?/, "");
-        } catch (_) {
-            const text = String(url || "");
-            const schemeIdx = text.indexOf("://");
-            let start = 0;
-            if (schemeIdx >= 0) {
-                const hostStart = schemeIdx + 3;
-                const slash = text.indexOf("/", hostStart);
-                start = slash >= 0 ? slash : text.length;
-            }
-            const pathAndQuery = text.slice(start) || "/";
-            const qIdx = pathAndQuery.indexOf("?");
-            if (qIdx >= 0) {
-                path = pathAndQuery.slice(0, qIdx) || "/";
-                rawQuery = pathAndQuery.slice(qIdx + 1);
-            } else {
-                path = pathAndQuery || "/";
-            }
-        }
-
-        const paramsByKey = {};
-        rawQuery.split("&").forEach(function(part) {
-            if (!part) return;
-            const i = part.indexOf("=");
-            const k = i >= 0 ? part.slice(0, i) : part;
-            const v = i >= 0 ? part.slice(i + 1) : "";
-            if (!Object.prototype.hasOwnProperty.call(paramsByKey, k)) paramsByKey[k] = [];
-            paramsByKey[k].push(v);
-        });
-        const keys = Object.keys(paramsByKey).sort();
-        const query = [];
-        keys.forEach(function(k) {
-            paramsByKey[k].forEach(function(v) { query.push(k + "=" + v); });
-        });
-        const canonicalUrl = query.length ? (path + "?" + query.join("&")) : path;
-        let bodyLength = "";
-        let bodyHash = "";
-        if (body !== null && body !== undefined) {
-            const raw = toRawUtf8(String(body));
-            bodyLength = String(raw.length);
-            bodyHash = md5Hex(raw.length > 102400 ? raw.slice(0, 102400) : raw);
-        }
-        return String(method).toUpperCase() + "\n"
-            + (accept || "") + "\n"
-            + (contentType || "") + "\n"
-            + bodyLength + "\n"
-            + ts + "\n"
-            + bodyHash + "\n"
-            + canonicalUrl;
-    }
-
-    function generateXTrSignature(method, accept, contentType, url, body, useAlt) {
-        const ts = Date.now();
-        const keyRaw = atob(defaultLayer1(!!useAlt));
-        const message = toRawUtf8(canonical(method, accept, contentType, url, body, ts));
-        const sigRaw = hmacMd5Raw(keyRaw, message);
-        return ts + "|2|" + btoa(sigRaw);
-    }
-
-    function withTimeout(promise, ms, fallbackValue) {
-        let timer = null;
-        const timeoutPromise = new Promise(function(resolve) {
-            timer = setTimeout(function() { resolve(fallbackValue); }, ms);
-        });
-        return Promise.race([promise, timeoutPromise]).then(function(result) {
-            if (timer) clearTimeout(timer);
-            return result;
-        }).catch(function() {
-            if (timer) clearTimeout(timer);
-            return fallbackValue;
-        });
-    }
-
-    async function fetchHomeSection(sectionKey, sectionName) {
-        const perPage = 15;
-        const isList = sectionKey.indexOf("|") >= 0;
-        const endpoint = isList
-            ? (manifest.baseUrl + "/wefeed-mobile-bff/subject-api/list")
-            : (manifest.baseUrl + "/wefeed-mobile-bff/tab/ranking-list?tabId=0&categoryType=" + encodeURIComponent(sectionKey) + "&page=1&perPage=" + perPage);
-
-        const mainParts = sectionKey.split(";")[0].split("|");
-        const options = {};
-        sectionKey.split(";").slice(1).forEach(function(chunk) {
-            const idx = chunk.indexOf("=");
-            if (idx < 0) return;
-            options[chunk.slice(0, idx)] = chunk.slice(idx + 1);
-        });
-        const payload = JSON.stringify({
-            page: Number(mainParts[0] || 1) || 1,
-            perPage: perPage,
-            channelId: mainParts[1] || "",
-            classify: options.classify || "All",
-            country: options.country || "All",
-            year: options.year || "All",
-            genre: options.genre || "All",
-            sort: options.sort || "ForYou"
-        });
-        const bm = randomBrandModel();
-        const baseHeaders = {
-            "user-agent": "com.community.mbox.in/50020042 (Linux; U; Android 16; en_IN; " + bm.model + "; Build/BP22.250325.006; Cronet/133.0.6876.3)",
-            "accept": "application/json",
-            "content-type": "application/json",
-            "connection": "keep-alive",
-            "x-client-token": generateXClientToken(),
-            "x-client-info": buildMboxClientInfo(bm.brand, bm.model),
-            "x-client-status": "0"
-        };
-        const response = isList
-            ? await http_post(endpoint, Object.assign({}, baseHeaders, {
-                "x-tr-signature": generateXTrSignature("POST", "application/json", "application/json; charset=utf-8", endpoint, payload, false),
-                "x-play-mode": "2"
-            }), payload)
-            : await http_get(endpoint, Object.assign({}, baseHeaders, {
-                "x-tr-signature": generateXTrSignature("GET", "application/json", "application/json", endpoint, null, false)
-            }));
-        const root = parseJsonSafe(response.body, {});
-        const items = (((root || {}).data || {}).items) || (((root || {}).data || {}).subjects) || [];
-        return [sectionName, items.map(function(item) {
-            const title = String(item.title || "").split("[")[0].trim();
-            const subjectId = item.subjectId ? String(item.subjectId) : "";
-            if (!title || !subjectId) return null;
-            return new MultimediaItem({
-                title: title,
-                url: JSON.stringify({ subjectId: subjectId, subjectType: item.subjectType || 1 }),
-                posterUrl: item.cover && item.cover.url ? item.cover.url : "",
-                type: typeFromSubject(item.subjectType),
-                score: Number(item.imdbRatingValue) || undefined
-            });
-        }).filter(Boolean)];
-    }
-
     async function getHome(cb) {
         try {
             const sections = {};
-            const sectionResults = await Promise.all(HOME_KEYS.map(function(pair) {
-                return withTimeout(fetchHomeSection(pair[0], pair[1]), 4500, [pair[1], []]);
-            }));
-            sectionResults.forEach(function(section) {
-                if (section && section[1] && section[1].length) sections[section[0]] = section[1];
+
+            const homePromise = (async function() {
+                const endpoint = BASE_URL + "/wefeed-h5api-bff/home";
+                const root = await requestJson(endpoint, { headers: buildHeaders(WEB_URL + "/") });
+                const operatingList = (root && root.data && Array.isArray(root.data.operatingList)) ? root.data.operatingList : [];
+                operatingList.forEach(function(item) {
+                    if (!item || !Array.isArray(item.subjects) || !item.subjects.length) return;
+                    let rawTitle = String(item.title || item.name || "").trim();
+                    let sectionName = rawTitle.replace(/^[🔥🆓✨\s]+/, "").trim();
+                    if (sectionName.toLowerCase().includes("trending")) sectionName = "Trending";
+                    if (sectionName === "Cinema") sectionName = "Trending in Cinema";
+                    if (sectionName === "Top Anime") sectionName = "Anime";
+                    if (sectionName === "Best Asian Series") sectionName = "Asian Drama";
+                    if (!sectionName) return;
+
+                    const items = item.subjects.map(function(s) {
+                        const title = cleanTitle(s.title);
+                        const subjectId = s.subjectId ? String(s.subjectId) : "";
+                        if (!title || !subjectId) return null;
+                        return new MultimediaItem({
+                            title: title,
+                            url: JSON.stringify({ subjectId: subjectId, detailPath: s.detailPath || "", subjectType: s.subjectType || 1 }),
+                            posterUrl: s.cover && s.cover.url ? s.cover.url : "",
+                            type: typeFromSubject(s.subjectType),
+                            score: Number(s.imdbRatingValue) || undefined
+                        });
+                    }).filter(Boolean);
+
+                    if (items.length > 0) sections[sectionName] = items;
+                });
+            })();
+
+            const FILTER_SECTIONS = [
+                ["Movies", { channelId: "1" }],
+                ["Series", { channelId: "2" }],
+                ["Indian (Movies)", { channelId: "1", country: "India" }],
+                ["Indian (Series)", { channelId: "2", country: "India" }],
+                ["USA (Movies)", { channelId: "1", country: "United States" }],
+                ["USA (Series)", { channelId: "2", country: "United States" }],
+                ["Korean Drama", { channelId: "2", country: "Korea" }],
+                ["Action (Movies)", { channelId: "1", genre: "Action" }],
+                ["Crime (Movies)", { channelId: "1", genre: "Crime" }],
+                ["Comedy (Movies)", { channelId: "1", genre: "Comedy" }],
+                ["Romance (Movies)", { channelId: "1", genre: "Romance" }],
+                ["Crime (Series)", { channelId: "2", genre: "Crime" }],
+                ["Comedy (Series)", { channelId: "2", genre: "Comedy" }],
+                ["Romance (Series)", { channelId: "2", genre: "Romance" }]
+            ];
+
+            const filterPromises = FILTER_SECTIONS.map(function(pair) {
+                const name = pair[0];
+                const params = pair[1];
+                const payload = JSON.stringify(Object.assign({
+                    page: 1,
+                    perPage: 15,
+                    classify: "All",
+                    country: "All",
+                    genre: "All",
+                    sort: "ForYou",
+                    year: "All"
+                }, params));
+
+                return requestJson(BASE_URL + "/wefeed-h5api-bff/subject/filter", {
+                    method: "POST",
+                    headers: Object.assign(buildHeaders(WEB_URL + "/"), { "content-type": "application/json" }),
+                    body: payload
+                }).then(function(root) {
+                    const rawItems = (root && root.data && (root.data.items || root.data.subjects || root.data.list)) || [];
+                    const items = rawItems.map(function(s) {
+                        const title = cleanTitle(s.title);
+                        const subjectId = s.subjectId ? String(s.subjectId) : "";
+                        if (!title || !subjectId) return null;
+                        return new MultimediaItem({
+                            title: title,
+                            url: JSON.stringify({ subjectId: subjectId, detailPath: s.detailPath || "", subjectType: s.subjectType || 1 }),
+                            posterUrl: s.cover && s.cover.url ? s.cover.url : "",
+                            type: typeFromSubject(s.subjectType),
+                            score: Number(s.imdbRatingValue) || undefined
+                        });
+                    }).filter(Boolean);
+                    if (items.length > 0) sections[name] = items;
+                }).catch(function() {});
             });
-            cb({ success: true, data: sections });
+
+            await Promise.all([homePromise, ...filterPromises]);
+
+            const SECTION_ORDER = [
+                "Trending", "Trending in Cinema", "Bollywood", "South Indian", "Hollywood",
+                "Movies", "Series", "Anime", "Asian Drama", "Korean Drama", "Western TV",
+                "Indian Drama", "Indian (Movies)", "Indian (Series)", "USA (Movies)", "USA (Series)",
+                "Action (Movies)", "Comedy (Movies)", "Crime (Movies)", "Romance (Movies)",
+                "Crime (Series)", "Comedy (Series)", "Romance (Series)", "Free Now!", "Hot Short TV", "Coming Soon"
+            ];
+
+            const orderedSections = {};
+            SECTION_ORDER.forEach(function(k) {
+                if (sections[k] && sections[k].length) orderedSections[k] = sections[k];
+            });
+            Object.keys(sections).forEach(function(k) {
+                if (!orderedSections[k] && sections[k] && sections[k].length) orderedSections[k] = sections[k];
+            });
+
+            cb({ success: true, data: orderedSections });
         } catch (e) {
             cb({ success: false, errorCode: "HOME_ERROR", message: String(e && e.message ? e.message : e) });
         }
@@ -367,181 +244,106 @@
 
     async function search(query, cb) {
         try {
-            const endpoint = manifest.baseUrl + "/wefeed-mobile-bff/subject-api/search/v2";
-            const payload = JSON.stringify({ page: 1, perPage: 20, keyword: String(query || "") });
-            const bm = randomBrandModel();
-            const xClientToken = generateXClientToken();
-            const xTrSignature = generateXTrSignature("POST", "application/json", "application/json", endpoint, payload, false);
-            const headers = {
-                "user-agent": "com.community.mbox.in/50020042 (Linux; U; Android 16; en_IN; sdk_gphone64_x86_64; Build/BP22.250325.006; Cronet/133.0.6876.3)",
-                "accept": "application/json",
-                "content-type": "application/json",
-                "connection": "keep-alive",
-                "x-client-token": xClientToken,
-                "x-tr-signature": xTrSignature,
-                "x-client-info": JSON.stringify({
-                    package_name: "com.community.mbox.in",
-                    version_name: "3.0.03.0529.03",
-                    version_code: 50020042,
-                    os: "android",
-                    os_version: "16",
-                    device_id: DEVICE_ID,
-                    install_store: "ps",
-                    gaid: "d7578036d13336cc",
-                    brand: "google",
-                    model: kotlinBrandModelString(),
-                    system_language: "en",
-                    net: "NETWORK_WIFI",
-                    region: "IN",
-                    timezone: "Asia/Calcutta",
-                    sp_code: ""
+            if (!cachedToken) {
+                await requestJson(BASE_URL + "/wefeed-h5api-bff/home", { headers: buildHeaders(WEB_URL + "/") });
+            }
+            const endpoint = BASE_URL + "/wefeed-h5api-bff/subject/search";
+            const payload = JSON.stringify({ keyword: String(query || ""), page: 1, perPage: 20, subjectType: 0 });
+            const root = await requestJson(endpoint, {
+                method: "POST",
+                headers: Object.assign(buildHeaders(WEB_URL + "/"), {
+                    "content-type": "application/json"
                 }),
-                "x-client-status": "0"
-            };
-
-            const res = await http_post(endpoint, headers, payload);
-            const root = parseJsonSafe(res.body, {});
-            const results = (((root || {}).data || {}).results) || [];
+                body: payload
+            });
+            const items = (((root || {}).data || {}).items) || (((root || {}).data || {}).subjects) || (((root || {}).data || {}).list) || [];
             const searchList = [];
             const seen = {};
-
-            results.forEach(function(group) {
-                var subjects = (group && Array.isArray(group.subjects)) ? group.subjects : [];
-                subjects.forEach(function(subject) {
-                    if (!subject || !subject.subjectId) return;
-                    var sid = String(subject.subjectId);
-                    if (!sid || seen[sid]) return;
-                    seen[sid] = true;
-                    searchList.push(new MultimediaItem({
-                        title: subject.title || "Unknown",
-                        url: sid,
-                        posterUrl: subject.cover && subject.cover.url ? subject.cover.url : "",
-                        type: typeFromSubject(subject.subjectType),
-                        score: Number(subject.imdbRatingValue) || undefined
-                    }));
-                });
+            items.forEach(function(s) {
+                if (!s || !s.subjectId) return;
+                const sid = String(s.subjectId);
+                if (seen[sid]) return;
+                seen[sid] = true;
+                searchList.push(new MultimediaItem({
+                    title: cleanTitle(s.title || "Unknown"),
+                    url: JSON.stringify({ subjectId: sid, detailPath: s.detailPath || "", subjectType: s.subjectType || 1 }),
+                    posterUrl: s.cover && s.cover.url ? s.cover.url : "",
+                    type: typeFromSubject(s.subjectType),
+                    score: Number(s.imdbRatingValue) || undefined
+                }));
             });
             cb({ success: true, data: searchList });
         } catch (e) {
-            cb({ success: false, errorCode: "DEBUG_ERROR", message: String(e && e.message ? e.message : e) });
+            cb({ success: false, errorCode: "SEARCH_ERROR", message: String(e && e.message ? e.message : e) });
         }
-    }
-
-    async function getSubject(subjectId, useOneRoom, token) {
-        const bm = randomBrandModel();
-        const url = manifest.baseUrl + "/wefeed-mobile-bff/subject-api/get?subjectId=" + encodeURIComponent(subjectId);
-        const mboxClientInfo = JSON.stringify({
-            package_name: "com.community.mbox.in",
-            version_name: "3.0.03.0529.03",
-            version_code: 50020042,
-            os: "android",
-            os_version: "16",
-            device_id: DEVICE_ID,
-            install_store: "ps",
-            gaid: "d7578036d13336cc",
-            brand: "google",
-            model: "sdk_gphone64_x86_64",
-            system_language: "en",
-            net: "NETWORK_WIFI",
-            region: "IN",
-            timezone: "Asia/Calcutta",
-            sp_code: ""
-        });
-        const headers = {
-            "Authorization": token ? ("Bearer " + token) : "",
-            "user-agent": useOneRoom
-                ? ("com.community.oneroom/50020088 (Linux; U; Android 13; en_US; " + bm.model + "; Build/TQ3A.230901.001; Cronet/145.0.7582.0)")
-                : ("com.community.mbox.in/50020042 (Linux; U; Android 16; en_IN; sdk_gphone64_x86_64; Build/BP22.250325.006; Cronet/133.0.6876.3)"),
-            "accept": "application/json",
-            "content-type": "application/json",
-            "connection": "keep-alive",
-            "x-client-token": generateXClientToken(),
-            "x-tr-signature": generateXTrSignature("GET", "application/json", "application/json", url, null, false),
-            "x-client-info": useOneRoom ? buildOneroomClientInfo(bm.brand, bm.model) : mboxClientInfo,
-            "x-client-status": "0"
-        };
-        if (!useOneRoom) headers["x-play-mode"] = "2";
-        return await http_get(url, headers);
     }
 
     async function load(url, cb) {
         try {
             const payload = parseJsonSafe(url, {});
-            const subjectId = extractSubjectId(url);
-            if (!subjectId) return cb({ success: false, errorCode: "INVALID_ID", message: "Missing subject id" });
-            const res = await getSubject(subjectId, false, null);
-            const data = (parseJsonSafe(res.body, {}).data) || null;
-            if (!data) {
-                const inferredType = typeFromSubject(payload.subjectType || 1);
-                const streamPayload = JSON.stringify({ subjectId: subjectId, se: 0, ep: 0 });
-                if (inferredType === "movie") {
-                    return cb({ success: true, data: new MultimediaItem({
-                        title: payload.title || "MovieBox",
-                        url: streamPayload,
-                        type: "movie",
-                        episodes: [new Episode({ name: "Full Movie", season: 1, episode: 1, url: streamPayload })]
-                    }) });
-                }
-                return cb({ success: true, data: new MultimediaItem({
-                    title: payload.title || "MovieBox",
-                    url: url,
-                    type: "series",
-                    episodes: [new Episode({ name: "Episode 1", season: 1, episode: 1, url: JSON.stringify({ subjectId: subjectId, se: 1, ep: 1 }) })]
-                }) });
+            const subjectId = payload.subjectId ? String(payload.subjectId) : extractSubjectId(url);
+            const detailPath = payload.detailPath ? String(payload.detailPath) : "";
+            if (!subjectId && !detailPath) return cb({ success: false, errorCode: "INVALID_ID", message: "Missing subject id" });
+
+            const param = detailPath ? ("detailPath=" + encodeURIComponent(detailPath)) : ("subjectId=" + encodeURIComponent(subjectId));
+            const endpoint = BASE_URL + "/wefeed-h5api-bff/detail?" + param;
+            const root = await requestJson(endpoint, { headers: buildHeaders(WEB_URL + "/") });
+            const data = (root && root.data) || null;
+            if (!data || !data.subject) {
+                return cb({ success: false, errorCode: "NOT_FOUND", message: "Detail not found" });
             }
-            const title = cleanTitle(data.title || "Unknown");
-            const poster = data.cover && data.cover.url ? data.cover.url : "";
-            const description = data.description || "";
-            const year = /^\d{4}/.test(String(data.releaseDate || "")) ? Number(String(data.releaseDate).slice(0, 4)) : undefined;
-            const type = typeFromSubject(data.subjectType || 1);
-            const cast = (Array.isArray(data.staffList) ? data.staffList : []).map(mapActorFromStaff).filter(Boolean);
-            const recommendations = extractRecommendations(data, data.subjectType || 1);
+            const s = data.subject;
+            const sid = String(s.subjectId || subjectId);
+            const dp = String(s.detailPath || detailPath);
+            const title = cleanTitle(s.title || "Unknown");
+            const poster = s.cover && s.cover.url ? s.cover.url : "";
+            const description = s.description || "";
+            const year = /^\d{4}/.test(String(s.releaseDate || "")) ? Number(String(s.releaseDate).slice(0, 4)) : undefined;
+            const type = typeFromSubject(s.subjectType || payload.subjectType || 1);
+            const cast = (Array.isArray(s.staffList) ? s.staffList : []).map(mapActorFromStaff).filter(Boolean);
+            const recommendations = extractRecommendations(data, s.subjectType || 1);
+
             if (type === "movie") {
-                const streamPayload = JSON.stringify({ subjectId: subjectId, se: 0, ep: 0 });
+                const streamPayload = JSON.stringify({ subjectId: sid, detailPath: dp, se: 0, ep: 0 });
                 return cb({ success: true, data: new MultimediaItem({
-                    title: title, url: streamPayload, posterUrl: poster, description: description, type: "movie", year: year,
+                    title: title,
+                    url: streamPayload,
+                    posterUrl: poster,
+                    description: description,
+                    type: "movie",
+                    year: year,
                     cast: cast,
                     recommendations: recommendations,
                     episodes: [new Episode({ name: "Full Movie", season: 1, episode: 1, url: streamPayload, posterUrl: poster })]
                 }) });
             }
+
             const episodes = [];
-            const allSubjectIds = [subjectId];
-            (Array.isArray(data.dubs) ? data.dubs : []).forEach(function(dub) {
-                if (dub && dub.subjectId) {
-                    const sid = String(dub.subjectId);
-                    if (allSubjectIds.indexOf(sid) < 0) allSubjectIds.push(sid);
+            const seasons = (data.resource && Array.isArray(data.resource.seasons)) ? data.resource.seasons : [];
+            seasons.forEach(function(seObj) {
+                const sn = Number(seObj && seObj.se ? seObj.se : 1) || 1;
+                const maxEp = Number(seObj && seObj.maxEp ? seObj.maxEp : 1) || 1;
+                for (let ep = 1; ep <= maxEp; ep++) {
+                    episodes.push(new Episode({
+                        name: "S" + sn + "E" + ep,
+                        season: sn,
+                        episode: ep,
+                        url: JSON.stringify({ subjectId: sid, detailPath: dp, se: sn, ep: ep }),
+                        posterUrl: poster
+                    }));
                 }
             });
-            const seen = {};
-            for (let i = 0; i < allSubjectIds.length; i++) {
-                const sid = allSubjectIds[i];
-                const seasonUrl = manifest.baseUrl + "/wefeed-mobile-bff/subject-api/season-info?subjectId=" + encodeURIComponent(sid);
-                const seasonRes = await http_get(seasonUrl, {
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                    "x-client-token": generateXClientToken(),
-                    "x-tr-signature": generateXTrSignature("GET", "application/json", "application/json", seasonUrl, null, false)
-                });
-                const seasons = ((((parseJsonSafe(seasonRes.body, {}) || {}).data) || {}).seasons) || [];
-                seasons.forEach(function(se) {
-                    const sn = Number(se && se.se ? se.se : 1) || 1;
-                    const maxEp = Number(se && se.maxEp ? se.maxEp : 1) || 1;
-                    for (let ep = 1; ep <= maxEp; ep++) {
-                        const key = sn + ":" + ep;
-                        if (seen[key]) continue;
-                        seen[key] = true;
-                        episodes.push(new Episode({
-                            name: "S" + sn + "E" + ep,
-                            season: sn,
-                            episode: ep,
-                            url: JSON.stringify({ subjectId: subjectId, se: sn, ep: ep }),
-                            posterUrl: poster
-                        }));
-                    }
-                });
+
+            if (!episodes.length) {
+                episodes.push(new Episode({
+                    name: "Episode 1",
+                    season: 1,
+                    episode: 1,
+                    url: JSON.stringify({ subjectId: sid, detailPath: dp, se: 1, ep: 1 }),
+                    posterUrl: poster
+                }));
             }
-            if (!episodes.length) episodes.push(new Episode({ name: "Episode 1", season: 1, episode: 1, url: JSON.stringify({ subjectId: subjectId, se: 1, ep: 1 }), posterUrl: poster }));
+
             cb({ success: true, data: new MultimediaItem({
                 title: title,
                 url: url,
@@ -561,121 +363,80 @@
     async function loadStreams(url, cb) {
         try {
             const payload = parseJsonSafe(url, {});
-            const subjectId = payload.subjectId ? String(payload.subjectId) : "";
+            let subjectId = payload.subjectId ? String(payload.subjectId) : extractSubjectId(url);
+            let detailPath = payload.detailPath ? String(payload.detailPath) : "";
             const se = Number(payload.se || 0) || 0;
             const ep = Number(payload.ep || 0) || 0;
-            if (!subjectId) return cb({ success: false, errorCode: "INVALID_ID", message: "Missing subject id" });
+            if (!subjectId && !detailPath) return cb({ success: false, errorCode: "INVALID_ID", message: "Missing subject id" });
 
-            const subjectRes = await getSubject(subjectId, true, null);
-            const xUserHeader = (subjectRes.headers || {})["x-user"] || (subjectRes.headers || {})["X-User"];
-            const token = xUserHeader ? (parseJsonSafe(xUserHeader, {}).token || null) : null;
-            const data = parseJsonSafe(subjectRes.body, {}).data || {};
-            const sources = [[subjectId, "Original"]];
-            (Array.isArray(data.dubs) ? data.dubs : []).forEach(function(d) {
-                if (!d || !d.subjectId) return;
-                const sid = String(d.subjectId);
-                if (sid !== subjectId) sources.push([sid, String(d.lanName || "dub")]);
+            let dubs = [];
+            const detailParam = detailPath ? ("detailPath=" + encodeURIComponent(detailPath)) : ("subjectId=" + encodeURIComponent(subjectId));
+            const detailRoot = await requestJson(BASE_URL + "/wefeed-h5api-bff/detail?" + detailParam, { headers: buildHeaders(WEB_URL + "/") });
+            const s = (detailRoot && detailRoot.data && detailRoot.data.subject) || {};
+            if (!detailPath && s.detailPath) detailPath = s.detailPath;
+            if (!subjectId && s.subjectId) subjectId = String(s.subjectId);
+            if (Array.isArray(s.dubs)) dubs = s.dubs;
+
+            const sources = [{ subjectId: subjectId, detailPath: detailPath, name: "Original Audio" }];
+            dubs.forEach(function(d) {
+                if (d && d.subjectId && String(d.subjectId) !== subjectId && d.detailPath) {
+                    sources.push({ subjectId: String(d.subjectId), detailPath: String(d.detailPath), name: String(d.lanName || "Dub") });
+                }
             });
 
             const results = [];
-            for (let i = 0; i < sources.length; i++) {
-                const sid = sources[i][0];
-                const lang = String(sources[i][1] || "Audio").replace(/dub/ig, "Audio");
-                const playUrl = manifest.baseUrl + "/wefeed-mobile-bff/subject-api/play-info?subjectId=" + encodeURIComponent(sid) + "&se=" + se + "&ep=" + ep;
-                const bm = randomBrandModel();
-                const headers = {
-                    "Authorization": token ? ("Bearer " + token) : "",
-                    "user-agent": "com.community.oneroom/50020088 (Linux; U; Android 13; en_US; " + bm.model + "; Build/TQ3A.230901.001; Cronet/145.0.7582.0)",
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                    "connection": "keep-alive",
-                    "x-client-token": generateXClientToken(),
-                    "x-tr-signature": generateXTrSignature("GET", "application/json", "application/json", playUrl, null, false),
-                    "x-client-info": buildOneroomClientInfo(bm.brand, bm.model),
-                    "x-client-status": "0"
-                };
-                const playRes = await http_get(playUrl, headers);
-                const streams = ((((parseJsonSafe(playRes.body, {}) || {}).data) || {}).streams) || [];
-                streams.forEach(function(stream) {
-                    if (!stream || !stream.url) return;
-                    const streamHeaders = { "Referer": manifest.baseUrl };
-                    if (stream.signCookie) streamHeaders["Cookie"] = String(stream.signCookie);
+            const seenUrls = {};
+            const querySources = sources.slice(0, 4);
+
+            await Promise.all(querySources.map(async function(src) {
+                const playUrl = BASE_URL + "/wefeed-h5api-bff/subject/play?subjectId=" + encodeURIComponent(src.subjectId)
+                    + "&se=" + se + "&ep=" + ep
+                    + "&detailPath=" + encodeURIComponent(src.detailPath)
+                    + "&streamSignType=0&supportCodecs%5Bh264%5D=1&supportCodecs%5Bhevc%5D=1";
+
+                const playHeaders = Object.assign(buildHeaders(WEB_URL + "/spa/videoPlayPage/movies/" + src.detailPath + "?id=" + src.subjectId + "&lang=en"));
+                const playRoot = await requestJson(playUrl, { headers: playHeaders });
+                const streams = (((playRoot || {}).data || {}).streams) || [];
+
+                await Promise.all(streams.map(async function(st) {
+                    if (!st || !st.url || seenUrls[st.url]) return;
+                    seenUrls[st.url] = true;
+
+                    let subs = [];
+                    if (st.id) {
+                        const capUrl = BASE_URL + "/wefeed-h5api-bff/subject/caption?format=" + (st.format || "MP4")
+                            + "&id=" + encodeURIComponent(st.id)
+                            + "&subjectId=" + encodeURIComponent(src.subjectId)
+                            + "&detailPath=" + encodeURIComponent(src.detailPath);
+                        const capRoot = await requestJson(capUrl, { headers: buildHeaders(WEB_URL + "/") });
+                        const captions = (((capRoot || {}).data || {}).captions) || [];
+                        subs = captions.map(function(c) {
+                            return {
+                                url: c.url,
+                                file: c.url,
+                                label: c.lanName || c.lan || "Unknown",
+                                lang: c.lan || "en"
+                            };
+                        });
+                    }
+
                     results.push(new StreamResult({
-                        url: String(stream.url),
-                        source: "MovieBox " + lang + " " + qualityLabel(stream.resolutions),
-                        headers: streamHeaders
+                        url: String(st.url),
+                        source: "MovieBox " + src.name + " " + qualityLabel(st.resolutions),
+                        headers: { "Referer": WEB_URL + "/" },
+                        subtitles: subs.length ? subs : undefined
                     }));
-                });
-            }
+                }));
+            }));
+
             cb({ success: true, data: results });
         } catch (e) {
             cb({ success: false, errorCode: "STREAM_ERROR", message: String(e && e.message ? e.message : e) });
         }
     }
 
-    function qualityLabel(resolutionText) {
-        const t = String(resolutionText || "");
-        if (t.indexOf("2160") >= 0) return "2160p";
-        if (t.indexOf("1440") >= 0) return "1440p";
-        if (t.indexOf("1080") >= 0) return "1080p";
-        if (t.indexOf("720") >= 0) return "720p";
-        if (t.indexOf("480") >= 0) return "480p";
-        return "Auto";
-    }
-
     globalThis.getHome = getHome;
     globalThis.search = search;
     globalThis.load = load;
     globalThis.loadStreams = loadStreams;
-
-    function md5Hex(s) { return hex(md5Raw(toRawUtf8(s))); }
-
-    function hmacMd5Raw(key, msg) {
-        let bkey = rstr2binl(key);
-        if (bkey.length > 16) bkey = binlMd5(bkey, key.length * 8);
-        const ipad = [], opad = [];
-        for (let i = 0; i < 16; i++) {
-            ipad[i] = (bkey[i] || 0) ^ 0x36363636;
-            opad[i] = (bkey[i] || 0) ^ 0x5c5c5c5c;
-        }
-        const hash = binlMd5(ipad.concat(rstr2binl(msg)), 512 + msg.length * 8);
-        return binl2rstr(binlMd5(opad.concat(hash), 512 + 128));
-    }
-
-    function md5Raw(s) { return binl2rstr(binlMd5(rstr2binl(s), s.length * 8)); }
-    function hex(s) { const h = "0123456789abcdef"; let o = ""; for (let i = 0; i < s.length; i++) { const x = s.charCodeAt(i); o += h[(x >>> 4) & 15] + h[x & 15]; } return o; }
-    function add(x, y) { const l = (x & 65535) + (y & 65535); return (((x >>> 16) + (y >>> 16) + (l >>> 16)) << 16) | (l & 65535); }
-    function rol(n, c) { return (n << c) | (n >>> (32 - c)); }
-    function cmn(q, a, b, x, s, t) { return add(rol(add(add(a, q), add(x, t)), s), b); }
-    function ff(a, b, c, d, x, s, t) { return cmn((b & c) | ((~b) & d), a, b, x, s, t); }
-    function gg(a, b, c, d, x, s, t) { return cmn((b & d) | (c & (~d)), a, b, x, s, t); }
-    function hh(a, b, c, d, x, s, t) { return cmn(b ^ c ^ d, a, b, x, s, t); }
-    function ii(a, b, c, d, x, s, t) { return cmn(c ^ (b | (~d)), a, b, x, s, t); }
-    function binlMd5(x, len) {
-        x[len >> 5] |= 128 << (len % 32); x[(((len + 64) >>> 9) << 4) + 14] = len;
-        let a = 1732584193, b = -271733879, c = -1732584194, d = 271733878;
-        for (let i = 0; i < x.length; i += 16) {
-            const oa = a, ob = b, oc = c, od = d;
-            a = ff(a, b, c, d, x[i], 7, -680876936); d = ff(d, a, b, c, x[i + 1], 12, -389564586); c = ff(c, d, a, b, x[i + 2], 17, 606105819); b = ff(b, c, d, a, x[i + 3], 22, -1044525330);
-            a = ff(a, b, c, d, x[i + 4], 7, -176418897); d = ff(d, a, b, c, x[i + 5], 12, 1200080426); c = ff(c, d, a, b, x[i + 6], 17, -1473231341); b = ff(b, c, d, a, x[i + 7], 22, -45705983);
-            a = ff(a, b, c, d, x[i + 8], 7, 1770035416); d = ff(d, a, b, c, x[i + 9], 12, -1958414417); c = ff(c, d, a, b, x[i + 10], 17, -42063); b = ff(b, c, d, a, x[i + 11], 22, -1990404162);
-            a = ff(a, b, c, d, x[i + 12], 7, 1804603682); d = ff(d, a, b, c, x[i + 13], 12, -40341101); c = ff(c, d, a, b, x[i + 14], 17, -1502002290); b = ff(b, c, d, a, x[i + 15], 22, 1236535329);
-            a = gg(a, b, c, d, x[i + 1], 5, -165796510); d = gg(d, a, b, c, x[i + 6], 9, -1069501632); c = gg(c, d, a, b, x[i + 11], 14, 643717713); b = gg(b, c, d, a, x[i], 20, -373897302);
-            a = gg(a, b, c, d, x[i + 5], 5, -701558691); d = gg(d, a, b, c, x[i + 10], 9, 38016083); c = gg(c, d, a, b, x[i + 15], 14, -660478335); b = gg(b, c, d, a, x[i + 4], 20, -405537848);
-            a = gg(a, b, c, d, x[i + 9], 5, 568446438); d = gg(d, a, b, c, x[i + 14], 9, -1019803690); c = gg(c, d, a, b, x[i + 3], 14, -187363961); b = gg(b, c, d, a, x[i + 8], 20, 1163531501);
-            a = gg(a, b, c, d, x[i + 13], 5, -1444681467); d = gg(d, a, b, c, x[i + 2], 9, -51403784); c = gg(c, d, a, b, x[i + 7], 14, 1735328473); b = gg(b, c, d, a, x[i + 12], 20, -1926607734);
-            a = hh(a, b, c, d, x[i + 5], 4, -378558); d = hh(d, a, b, c, x[i + 8], 11, -2022574463); c = hh(c, d, a, b, x[i + 11], 16, 1839030562); b = hh(b, c, d, a, x[i + 14], 23, -35309556);
-            a = hh(a, b, c, d, x[i + 1], 4, -1530992060); d = hh(d, a, b, c, x[i + 4], 11, 1272893353); c = hh(c, d, a, b, x[i + 7], 16, -155497632); b = hh(b, c, d, a, x[i + 10], 23, -1094730640);
-            a = hh(a, b, c, d, x[i + 13], 4, 681279174); d = hh(d, a, b, c, x[i], 11, -358537222); c = hh(c, d, a, b, x[i + 3], 16, -722521979); b = hh(b, c, d, a, x[i + 6], 23, 76029189);
-            a = hh(a, b, c, d, x[i + 9], 4, -640364487); d = hh(d, a, b, c, x[i + 12], 11, -421815835); c = hh(c, d, a, b, x[i + 15], 16, 530742520); b = hh(b, c, d, a, x[i + 2], 23, -995338651);
-            a = ii(a, b, c, d, x[i], 6, -198630844); d = ii(d, a, b, c, x[i + 7], 10, 1126891415); c = ii(c, d, a, b, x[i + 14], 15, -1416354905); b = ii(b, c, d, a, x[i + 5], 21, -57434055);
-            a = ii(a, b, c, d, x[i + 12], 6, 1700485571); d = ii(d, a, b, c, x[i + 3], 10, -1894986606); c = ii(c, d, a, b, x[i + 10], 15, -1051523); b = ii(b, c, d, a, x[i + 1], 21, -2054922799);
-            a = ii(a, b, c, d, x[i + 8], 6, 1873313359); d = ii(d, a, b, c, x[i + 15], 10, -30611744); c = ii(c, d, a, b, x[i + 6], 15, -1560198380); b = ii(b, c, d, a, x[i + 13], 21, 1309151649);
-            a = ii(a, b, c, d, x[i + 4], 6, -145523070); d = ii(d, a, b, c, x[i + 11], 10, -1120210379); c = ii(c, d, a, b, x[i + 2], 15, 718787259); b = ii(b, c, d, a, x[i + 9], 21, -343485551);
-            a = add(a, oa); b = add(b, ob); c = add(c, oc); d = add(d, od);
-        }
-        return [a, b, c, d];
-    }
-    function rstr2binl(input) { const out = []; out[(input.length >> 2) - 1] = undefined; for (let i = 0; i < out.length; i++) out[i] = 0; for (let i = 0; i < input.length * 8; i += 8) out[i >> 5] |= (input.charCodeAt(i / 8) & 255) << (i % 32); return out; }
-    function binl2rstr(input) { let out = ""; for (let i = 0; i < input.length * 32; i += 8) out += String.fromCharCode((input[i >> 5] >>> (i % 32)) & 255); return out; }
 })();
