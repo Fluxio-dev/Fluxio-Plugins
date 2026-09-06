@@ -1,10 +1,10 @@
 {
-  "packageName": "dev.nivincnc.cncverse.moviebox",
+  "packageName": "dev.fluxio.moviebox",
   "name": "MovieBox",
   "version": 2,
   "baseUrl": "https://h5-api.aoneroom.com",
   "description": "Multi Language Movies and Series Provider",
-  "authors": ["NivinCNC"],
+  "authors": ["0xBadCode"],
   "languages": ["en", "hi", "ta"],
   "categories": ["Movie", "TvSeries"]
 }

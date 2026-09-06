@@ -4,9 +4,7 @@
   "version": 1,
   "baseUrl": "https://movielinkbd.shop",
   "description": "Bengali, Hindi, English, Dual Audio Movies & Web Series",
-  "authors": [
-    "open-code"
-  ],
+  "authors": ["0xBadCode"],
   "languages": [
     "bn",
     "hi",
