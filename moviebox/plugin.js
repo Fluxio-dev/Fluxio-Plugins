@@ -126,9 +126,11 @@
         const text = String(inputUrl || "");
         const looseMatch = text.match(/subjectId\s*[:=]\s*"?([^",}\s]+)"?/i);
         if (looseMatch && looseMatch[1]) return looseMatch[1];
-        const queryMatch = text.match(/[?&]subjectId=([^&]+)/i);
+        const queryMatch = text.match(/[?&](?:subjectId|id)=([^&]+)/i);
         if (queryMatch && queryMatch[1]) return decodeURIComponent(queryMatch[1]);
-        return text.split("/").pop() || "";
+        const pathOnly = text.split("?")[0];
+        const pathSegments = pathOnly.split("/").filter(Boolean);
+        return pathSegments.pop() || "";
     }
 
     async function getHome(cb) {
@@ -287,7 +289,11 @@
 
             const param = detailPath ? ("detailPath=" + encodeURIComponent(detailPath)) : ("subjectId=" + encodeURIComponent(subjectId));
             const endpoint = BASE_URL + "/wefeed-h5api-bff/detail?" + param;
-            const root = await requestJson(endpoint, { headers: buildHeaders(WEB_URL + "/") });
+            let root = await requestJson(endpoint, { headers: buildHeaders(WEB_URL + "/") });
+            if ((!root || !root.data || !root.data.subject) && subjectId && detailPath) {
+                const fallbackEndpoint = BASE_URL + "/wefeed-h5api-bff/detail?subjectId=" + encodeURIComponent(subjectId);
+                root = await requestJson(fallbackEndpoint, { headers: buildHeaders(WEB_URL + "/") });
+            }
             const data = (root && root.data) || null;
             if (!data || !data.subject) {
                 return cb({ success: false, errorCode: "NOT_FOUND", message: "Detail not found" });
@@ -360,6 +366,61 @@
         }
     }
 
+    function normalizeLangCode(code) {
+        const c = String(code || "").toLowerCase().trim();
+        if (c === "esla") return "es-419";
+        if (c === "ptbr") return "pt-BR";
+        return c;
+    }
+
+    function prioritizeDubs(dubs, requestedSubjectId, preferredLangs) {
+        if (!Array.isArray(dubs) || dubs.length === 0) return [];
+
+        const audioDubs = dubs.filter(function(d) { return d && d.type === 0 && d.subjectId && d.detailPath; });
+        const candidatePool = audioDubs.length > 0 ? audioDubs : dubs.filter(function(d) { return d && d.subjectId && d.detailPath; });
+
+        const scored = candidatePool.map(function(d) {
+            let score = 0;
+            const sid = String(d.subjectId);
+            const code = (d.lanCode || "").toLowerCase().trim();
+            const isRequested = requestedSubjectId && sid === String(requestedSubjectId);
+            const isOriginal = d.original || code === "en" || (d.lanName && d.lanName.toLowerCase().includes("original"));
+
+            if (isRequested) score += 1000;
+            if (isOriginal) score += 500;
+
+            const prefIdx = preferredLangs.indexOf(code);
+            if (prefIdx >= 0) {
+                score += (200 - prefIdx * 20);
+            }
+
+            const regional = ["te", "ml", "kn", "bn"];
+            const regIdx = regional.indexOf(code);
+            if (regIdx >= 0) {
+                score += (100 - regIdx * 10);
+            }
+
+            return { dub: d, score: score };
+        });
+
+        scored.sort(function(a, b) { return b.score - a.score; });
+
+        const seenLang = {};
+        const result = [];
+        for (let i = 0; i < scored.length; i++) {
+            const d = scored[i].dub;
+            const isOrig = Boolean(d.original || (d.lanName && d.lanName.toLowerCase().includes("original")));
+            const langCode = normalizeLangCode(d.lanCode) || String(d.subjectId);
+            const key = (isOrig ? "orig_" : "dub_") + langCode.toLowerCase();
+            if (!seenLang[key]) {
+                seenLang[key] = true;
+                result.push(d);
+                if (result.length >= 6) break;
+            }
+        }
+        return result;
+    }
+
     async function loadStreams(url, cb) {
         try {
             const payload = parseJsonSafe(url, {});
@@ -371,30 +432,40 @@
 
             let dubs = [];
             const detailParam = detailPath ? ("detailPath=" + encodeURIComponent(detailPath)) : ("subjectId=" + encodeURIComponent(subjectId));
-            const detailRoot = await requestJson(BASE_URL + "/wefeed-h5api-bff/detail?" + detailParam, { headers: buildHeaders(WEB_URL + "/") });
+            let detailRoot = await requestJson(BASE_URL + "/wefeed-h5api-bff/detail?" + detailParam, { headers: buildHeaders(WEB_URL + "/") });
+            if ((!detailRoot || !detailRoot.data || !detailRoot.data.subject) && subjectId && detailPath) {
+                detailRoot = await requestJson(BASE_URL + "/wefeed-h5api-bff/detail?subjectId=" + encodeURIComponent(subjectId), { headers: buildHeaders(WEB_URL + "/") });
+            }
             const s = (detailRoot && detailRoot.data && detailRoot.data.subject) || {};
             if (!detailPath && s.detailPath) detailPath = s.detailPath;
             if (!subjectId && s.subjectId) subjectId = String(s.subjectId);
             if (Array.isArray(s.dubs)) dubs = s.dubs;
 
-            const sources = [{ subjectId: subjectId, detailPath: detailPath, name: "Original Audio" }];
-            dubs.forEach(function(d) {
-                if (d && d.subjectId && String(d.subjectId) !== subjectId && d.detailPath) {
-                    sources.push({ subjectId: String(d.subjectId), detailPath: String(d.detailPath), name: String(d.lanName || "Dub") });
-                }
-            });
+            const preferredLangs = (manifest && Array.isArray(manifest.languages)) ? manifest.languages : ["en", "hi", "ta"];
+            let prioritizedDubs = prioritizeDubs(dubs, subjectId, preferredLangs);
+            if (prioritizedDubs.length === 0) {
+                prioritizedDubs = [{
+                    subjectId: subjectId,
+                    detailPath: detailPath,
+                    lanName: "Original Audio",
+                    lanCode: "en",
+                    original: true,
+                    type: 0
+                }];
+            }
 
             const results = [];
             const seenUrls = {};
-            const querySources = sources.slice(0, 4);
+            const captionPromises = {};
 
-            await Promise.all(querySources.map(async function(src) {
-                const playUrl = BASE_URL + "/wefeed-h5api-bff/subject/play?subjectId=" + encodeURIComponent(src.subjectId)
+            await Promise.all(prioritizedDubs.map(async function(dub) {
+                const playUrl = BASE_URL + "/wefeed-h5api-bff/subject/play?subjectId=" + encodeURIComponent(dub.subjectId)
                     + "&se=" + se + "&ep=" + ep
-                    + "&detailPath=" + encodeURIComponent(src.detailPath)
+                    + "&detailPath=" + encodeURIComponent(dub.detailPath)
                     + "&streamSignType=0&supportCodecs%5Bh264%5D=1&supportCodecs%5Bhevc%5D=1";
 
-                const playHeaders = Object.assign(buildHeaders(WEB_URL + "/spa/videoPlayPage/movies/" + src.detailPath + "?id=" + src.subjectId + "&lang=en"));
+                const pageType = (se > 0 || ep > 0) ? "series" : "movies";
+                const playHeaders = Object.assign(buildHeaders(WEB_URL + "/spa/videoPlayPage/" + pageType + "/" + dub.detailPath + "?id=" + dub.subjectId + "&lang=en"));
                 const playRoot = await requestJson(playUrl, { headers: playHeaders });
                 const streams = (((playRoot || {}).data || {}).streams) || [];
 
@@ -404,30 +475,61 @@
 
                     let subs = [];
                     if (st.id) {
-                        const capUrl = BASE_URL + "/wefeed-h5api-bff/subject/caption?format=" + (st.format || "MP4")
-                            + "&id=" + encodeURIComponent(st.id)
-                            + "&subjectId=" + encodeURIComponent(src.subjectId)
-                            + "&detailPath=" + encodeURIComponent(src.detailPath);
-                        const capRoot = await requestJson(capUrl, { headers: buildHeaders(WEB_URL + "/") });
+                        const capKey = String(dub.subjectId);
+                        if (!captionPromises[capKey]) {
+                            const capUrl = BASE_URL + "/wefeed-h5api-bff/subject/caption?format=" + (st.format || "MP4")
+                                + "&id=" + encodeURIComponent(st.id)
+                                + "&subjectId=" + encodeURIComponent(dub.subjectId)
+                                + "&detailPath=" + encodeURIComponent(dub.detailPath);
+                            captionPromises[capKey] = requestJson(capUrl, { headers: buildHeaders(WEB_URL + "/") });
+                        }
+                        const capRoot = await captionPromises[capKey];
                         const captions = (((capRoot || {}).data || {}).captions) || [];
-                        subs = captions.map(function(c) {
+                        subs = captions.filter(function(c) { return c && c.url; }).map(function(c) {
+                            const label = c.lanName || c.lan || "Unknown";
                             return {
                                 url: c.url,
                                 file: c.url,
-                                label: c.lanName || c.lan || "Unknown",
+                                label: label,
+                                title: label,
                                 lang: c.lan || "en"
                             };
                         });
                     }
 
+                    const qNum = parseInt(st.resolutions, 10) || undefined;
+                    const isOriginal = Boolean(dub.original || (dub.lanName && dub.lanName.toLowerCase().includes("original")));
+                    const normLang = normalizeLangCode(dub.lanCode) || "en";
+
                     results.push(new StreamResult({
                         url: String(st.url),
-                        source: "MovieBox " + src.name + " " + qualityLabel(st.resolutions),
+                        source: "MovieBox",
+                        quality: qNum,
+                        language: normLang,
+                        languageName: dub.lanName || undefined,
+                        isOriginal: isOriginal,
                         headers: { "Referer": WEB_URL + "/" },
                         subtitles: subs.length ? subs : undefined
                     }));
                 }));
             }));
+
+            // Sort streams: requested audio dub first, then requested language code, then highest quality
+            const reqDub = prioritizedDubs[0];
+            const reqLangCode = (reqDub && reqDub.lanCode) ? normalizeLangCode(reqDub.lanCode) : "";
+            const reqIsOrig = reqDub ? Boolean(reqDub.original || (reqDub.lanName && reqDub.lanName.toLowerCase().includes("original"))) : false;
+
+            results.sort(function(a, b) {
+                const aExact = (a.isOriginal === reqIsOrig) && (a.language === reqLangCode);
+                const bExact = (b.isOriginal === reqIsOrig) && (b.language === reqLangCode);
+                if (aExact !== bExact) return bExact ? 1 : -1;
+
+                const aMatchesLang = (a.language === reqLangCode);
+                const bMatchesLang = (b.language === reqLangCode);
+                if (aMatchesLang !== bMatchesLang) return bMatchesLang ? 1 : -1;
+
+                return (b.quality || 0) - (a.quality || 0);
+            });
 
             cb({ success: true, data: results });
         } catch (e) {
