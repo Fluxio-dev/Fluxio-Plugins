@@ -1,10 +1,10 @@
 {
-  "packageName": "dev.fluxio.cncverse",
-  "name": "CNCVerse",
+  "packageName": "dev.fluxio.netmirror",
+  "name": "NetMirror",
   "version": 12,
   "baseUrl": "https://net52.cc",
   "description": "Netflix, PrimeVideo, Disney+ Hotstar Contents in Multiple Languages",
-  "authors": ["NivinCNC", "0xBadCode"],
+  "authors": ["0xBadCode"],
   "languages": ["en", "ta", "hi"],
   "categories": ["Movie", "TvSeries", "Anime"],
   "providers": [

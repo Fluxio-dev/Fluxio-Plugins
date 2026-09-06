@@ -234,9 +234,9 @@
     let isNewToken = false;
     // Track isNewToken state and use backgroundBypassPromise to await new verify token for streams
     try {
-        cachedCookie = localStorage.getItem('cnc_cached_cookie') || '';
-        lastBypassTime = parseInt(localStorage.getItem('cnc_last_bypass_time') || '0', 10);
-        isNewToken = localStorage.getItem('cnc_is_new_token') === 'true';
+        cachedCookie = localStorage.getItem('nm_cached_cookie') || '';
+        lastBypassTime = parseInt(localStorage.getItem('nm_last_bypass_time') || '0', 10);
+        isNewToken = localStorage.getItem('nm_is_new_token') === 'true';
     } catch (_) {}
 
     let isRefreshing = false;
@@ -274,9 +274,9 @@
             isNewToken = false;
             lastBypassTime = Date.now();
             try {
-                localStorage.setItem('cnc_cached_cookie', cachedCookie);
-                localStorage.setItem('cnc_last_bypass_time', lastBypassTime.toString());
-                localStorage.setItem('cnc_is_new_token', 'false');
+                localStorage.setItem('nm_cached_cookie', cachedCookie);
+                localStorage.setItem('nm_last_bypass_time', lastBypassTime.toString());
+                localStorage.setItem('nm_is_new_token', 'false');
             } catch (_) {}
             return cachedCookie;
         }
@@ -370,9 +370,9 @@
                             lastBypassTime = Date.now();
                             logPlugin('BYPASS', 'Replaced old token with new: ' + oldToken + ' -> ' + hash);
                             try {
-                                localStorage.setItem('cnc_cached_cookie', cachedCookie);
-                                localStorage.setItem('cnc_last_bypass_time', lastBypassTime.toString());
-                                localStorage.setItem('cnc_is_new_token', 'true');
+                                localStorage.setItem('nm_cached_cookie', cachedCookie);
+                                localStorage.setItem('nm_last_bypass_time', lastBypassTime.toString());
+                                localStorage.setItem('nm_is_new_token', 'true');
                             } catch (_) {}
                             break;
                         }
@@ -556,9 +556,9 @@
                     isNewToken = false;
                     lastBypassTime = 0;
                     try {
-                        localStorage.removeItem('cnc_cached_cookie');
-                        localStorage.removeItem('cnc_is_new_token');
-                        localStorage.removeItem('cnc_last_bypass_time');
+                        localStorage.removeItem('nm_cached_cookie');
+                        localStorage.removeItem('nm_is_new_token');
+                        localStorage.removeItem('nm_last_bypass_time');
                     } catch (_) {}
                     runBackgroundBypass(provider);
                     try { await quickBypass(provider); } catch (_) {}
@@ -591,9 +591,9 @@
                 isNewToken = false;
                 lastBypassTime = 0;
                 try {
-                    localStorage.removeItem('cnc_cached_cookie');
-                    localStorage.removeItem('cnc_is_new_token');
-                    localStorage.removeItem('cnc_last_bypass_time');
+                    localStorage.removeItem('nm_cached_cookie');
+                    localStorage.removeItem('nm_is_new_token');
+                    localStorage.removeItem('nm_last_bypass_time');
                 } catch (_) {}
                 runBackgroundBypass(provider);
                 try { await quickBypass(provider); } catch (_) {}
