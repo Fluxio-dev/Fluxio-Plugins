@@ -19,11 +19,6 @@
       "name": "movies4u",
       "jsURL": "https://raw.githubusercontent.com/likhithkrishna1103-tech/Hindmovie/main/movies4u/plugin.js",
       "jsonURL": "https://raw.githubusercontent.com/likhithkrishna1103-tech/Hindmovie/main/movies4u/plugin.json"
-    },
-    {
-      "name": "moviebox",
-      "jsURL": "https://raw.githubusercontent.com/NivinCNC/CNCVerse-Sky-Stream-Extension/main/moviebox/plugin.js",
-      "jsonURL": "https://raw.githubusercontent.com/NivinCNC/CNCVerse-Sky-Stream-Extension/main/moviebox/plugin.json"
     }
   ]
 }
