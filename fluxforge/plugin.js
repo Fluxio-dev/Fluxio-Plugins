@@ -24,7 +24,8 @@
     var MOVIELINKBD_BASE = "https://movielinkbd.shop";
 
     // ───── SkyMoviesHD Config ─────
-    var SKY_API = "https://skymovieshd.ceo";
+    var SKY_API = "https://skymovieshd.meme";
+    var SKY_API_FALLBACK = "https://skymovieshd.ceo";
     var H_SKY = { "User-Agent": UA, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9" };
 
     function cleanText(v) { return String(v || "").replace(/\s+/g, " ").trim(); }
@@ -254,63 +255,151 @@
             }});
             if (!res || !res.body) return [];
             var json = JSON.parse(res.body);
-            var playlist = json.stream && json.stream.playlist;
-            if (!playlist) return [];
-            return [new StreamResult({ source: "Vidlink [Auto - 1080p]", name: "Vidlink", url: playlist, quality: 1080, headers: H_VIDLINK })];
+            var stream = json && json.stream;
+            if (!stream) return [];
+            var results = [];
+            // Vidlink: push playlist and individual quality streams
+            if (stream.playlist) {
+                results.push(new StreamResult({ source: "Vidlink [Auto - 1080p]", name: "Vidlink", url: stream.playlist, quality: 1080, headers: H_VIDLINK }));
+            }
+            if (stream.qualities && typeof stream.qualities === "object") {
+                var qKeys = Object.keys(stream.qualities);
+                for (var qi = 0; qi < qKeys.length; qi++) {
+                    var qk = qKeys[qi];
+                    var qObj = stream.qualities[qk];
+                    if (qObj && qObj.url) {
+                        var qNum = parseQuality(qk);
+                        results.push(new StreamResult({ source: "Vidlink [" + qk + "p MP4]", name: "Vidlink [" + qk + "p]", url: qObj.url, quality: qNum, headers: H_VIDLINK }));
+                    }
+                }
+            }
+            return results;
         } catch (_) { return []; }
     }
 
-    // ───── Provider: VidEasy (api.wingsdatabase.com) ─────
+    // ───── Provider: VidEasy (speedracelight pure-JS decryptor) ─────
+    var _VE_F = [1116352408,1899447441,3049323471,3921009573,961987163,1508970993,2453635748,2870763221,3624381080,310598401,607225278,1426881987,1925078388,2162078206,2614888103,3248222580];
+    var _VE_H = [109,118,109,49];
+    function _veW(e) { e >>>= 0; e ^= e >>> 16; e = Math.imul(e, 2246822507) >>> 0; e ^= e >>> 13; e = Math.imul(e, 3266489909) >>> 0; return (e ^= e >>> 16) >>> 0; }
+    function _veV(e, t) { return (e >>>= 0, 0 == (t &= 31)) ? e >>> 0 : (e << t | e >>> 32 - t) >>> 0; }
+
+    function decryptVideasy(ciphertext, seed, mediaId) {
+        try {
+            var tStr = ciphertext.replace(/-/g, "+").replace(/_/g, "/").padEnd(4 * Math.ceil(ciphertext.length / 4), "=");
+            var raw = typeof atob === "function" ? atob(tStr) : Buffer.from(tStr, "base64").toString("binary");
+            var r = new Uint8Array(raw.length);
+            for (var i = 0; i < raw.length; i++) r[i] = raw.charCodeAt(i);
+
+            var keyGen;
+            if ((seed.length * (seed.length + 1) & 1) === 1) {
+                var S = (function(s) {
+                    var t = Array(256);
+                    for (var e = 0; e < 256; e++) t[e] = e;
+                    var si = 0;
+                    for (var a = 0; a < 256; a++) {
+                        si = si + t[a] + s.charCodeAt(a % s.length) & 255;
+                        var tmp = t[a]; t[a] = t[si]; t[si] = tmp;
+                    }
+                    return t;
+                })(seed);
+                var acc = (function(s) {
+                    var t = 1732584193;
+                    for (var i = 0; i < s.length; i++) t = _veV((t ^ Math.imul(s.charCodeAt(i), _VE_F[15 & i])) >>> 0, 5);
+                    return _veW(t);
+                })(seed);
+                keyGen = { S: S, acc: acc };
+            } else {
+                var s = Array(61);
+                var hVal = (function(s) {
+                    var t = 2166136261;
+                    for (var i = 0; i < s.length; i++) t = Math.imul(t ^ s.charCodeAt(i), 16777619) >>> 0;
+                    return _veW(t);
+                })(seed);
+                var a = _veW(hVal ^ _veW(mediaId >>> 0 ^ 2654435769)) >>> 0;
+                for (var e = 0; e < 8; e++) {
+                    if ((e * (e + 1) & 1) === 0) {
+                        var tIdx = a % 61;
+                        a = _veV(a + 2654435769 >>> 0, 7 + (7 & e));
+                        s[tIdx] = (a ^ _veW(a)) >>> 0;
+                        a = _veW(a + tIdx >>> 0);
+                    } else {
+                        s[e] = _VE_F[15 & e];
+                    }
+                }
+                keyGen = { S: s, acc: _veW(2779096485 ^ a) >>> 0 };
+            }
+
+            var oBytes = new Uint8Array(r.length);
+            var oCount = 0;
+            for (var e = 0; e < r.length;) {
+                var rS = keyGen.S, oAcc = keyGen.acc, n = oAcc % 61, isN = 0 - Number(n in rS), d = rS[n] >>> 0;
+                var sVal, aVal;
+                var l = (((sVal = oAcc) ^ (aVal = (d ^ Math.imul(2654435769, oCount + 1) >>> 0) >>> 0)) >>> 0 | (sVal & aVal & isN) >>> 0) >>> 0;
+                oAcc = _veW((l = (_veV(l + oAcc >>> 0, 31 & n) ^ _veV(oAcc, 31 & Math.imul(n, 7))) >>> 0) + 2654435769 >>> 0);
+                rS[n] = oAcc >>> 0; keyGen.acc = oAcc;
+                oCount++;
+
+                oBytes[e++] = 255 & oAcc;
+                if (e < r.length) oBytes[e++] = oAcc >>> 8 & 255;
+                if (e < r.length) oBytes[e++] = oAcc >>> 16 & 255;
+                if (e < r.length) oBytes[e++] = oAcc >>> 24 & 255;
+            }
+
+            for (var e = 0; e < r.length; e++) r[e] ^= oBytes[e];
+            for (var e = 0; e < _VE_H.length; e++) {
+                if (r[e] !== _VE_H[e]) return null;
+            }
+            var sub = r.subarray(_VE_H.length);
+            if (typeof TextDecoder !== "undefined") return new TextDecoder("utf-8").decode(sub);
+            var decStr = "";
+            for (var i = 0; i < sub.length; i++) decStr += String.fromCharCode(sub[i]);
+            return decodeURIComponent(escape(decStr));
+        } catch (_) { return null; }
+    }
+
     async function fetchVidEasy(tmdbId, season, episode) {
         try {
             var details = _tmdbCache[tmdbId] || await fetchJson(TMDB_API + "/" + (season == null ? "movie" : "tv") + "/" + tmdbId + "?append_to_response=external_ids");
-            if (!details) return [];
+            if (!details) return null;
             var title = details.title || details.name || "";
             var year = (details.release_date || details.first_air_date || "").split("-")[0];
-            var imdbId = details.external_ids && details.external_ids.imdb_id;
-            var imdb = imdbId != null ? imdbId : "";
+            var imdbId = (details.external_ids && details.external_ids.imdb_id) || "";
 
-            // Step 1: Get seed from wingsdatabase
-            var seedUrl = "https://api.wingsdatabase.com/seed?mediaId=" + tmdbId;
-            var seedResp = await http_get(seedUrl, { headers: { "Origin": "https://player.videasy.to", "Referer": "https://player.videasy.to/", "User-Agent": UA } });
-            if (!seedResp || !seedResp.body) return [];
+            var headers = { "Origin": "https://player.videasy.to", "Referer": "https://player.videasy.to/", "User-Agent": UA };
+            var seedResp = await http_get("https://api.speedracelight.com/seed?mediaId=" + tmdbId, { headers: headers });
+            if (!seedResp || !seedResp.body || seedResp.status !== 200) return null;
             var seedData = JSON.parse(seedResp.body);
-            var seed = seedData.seed;
-            var enc = "2";
+            var seed = seedData && seedData.seed;
+            if (!seed) return null;
 
-            // Step 2: Query each wing server
-            var servers = ["jett", "cdn", "tejo", "neon2", "ym", "downloader2", "m4uhd", "hdmovie", "meine", "lamovie", "superflix"];
-            var q = function(t) { return encodeURIComponent(t).replace(/%20/g, "%20"); };
-            var encTitle = q(q(title));
-
+            var numId = parseInt(tmdbId, 10);
+            var servers = ["cdn", "m4uhd", "lamovie"];
+            var isMovie = season == null;
+            var encTitle = encodeURIComponent(title);
             var results = [];
-            var wingHeaders = { "User-Agent": UA, "Origin": "https://player.videasy.to", "Referer": "https://player.videasy.to/" };
 
             await Promise.all(servers.map(async function(srv) {
                 try {
-                    var srcUrl = "https://api.wingsdatabase.com/" + srv + "/sources-with-title?title=" + encTitle + "&mediaType=" + (season == null ? "movie" : "tv") + "&year=" + year + "&tmdbId=" + tmdbId + "&imdbId=" + imdb + "&enc=" + enc + "&seed=" + seed;
-                    if (season != null) srcUrl += "&episodeId=" + episode + "&seasonId=" + season;
+                    var srcUrl = "https://api.speedracelight.com/" + srv + "/sources-with-title?title=" + encTitle + "&mediaType=" + (isMovie ? "movie" : "tv") + "&year=" + year + "&tmdbId=" + tmdbId + "&imdbId=" + imdbId + "&enc=2&seed=" + seed;
+                    if (!isMovie) srcUrl += "&seasonId=" + season + "&episodeId=" + episode;
 
-                    var encResp = await http_get(srcUrl, { headers: wingHeaders });
-                    if (!encResp || !encResp.body || encResp.status !== 200) return;
+                    var resp = await http_get(srcUrl, { headers: headers });
+                    if (!resp || !resp.body || resp.status !== 200) return;
 
-                    var decResp = await http_post("https://enc-dec.app/api/dec-videasy", {
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ text: encResp.body, id: parseInt(tmdbId, 10), seed: seed })
-                    });
-                    if (!decResp || !decResp.body) return;
-                    var decJson = JSON.parse(decResp.body);
-                    var r = decJson.result;
-                    if (!r || !r.sources) return;
+                    var dec = decryptVideasy(resp.body, seed, numId);
+                    if (!dec) return;
+                    var json = JSON.parse(dec);
+                    var sources = json && json.sources;
+                    if (!Array.isArray(sources)) return;
 
-                    for (var j = 0; j < r.sources.length; j++) {
-                        var src = r.sources[j];
-                        if (src.url) {
-                            var q = parseQuality(src.quality);
+                    for (var j = 0; j < sources.length; j++) {
+                        var s = sources[j];
+                        if (s && s.url) {
+                            var q = parseQuality(s.quality);
                             results.push(new StreamResult({
                                 source: "VidEasy [" + srv.toUpperCase() + " - " + qLabel(q) + "]",
                                 name: "VidEasy [" + srv.toUpperCase() + " " + qLabel(q) + "]",
-                                url: src.url,
+                                url: s.url,
                                 quality: q,
                                 headers: { "User-Agent": UA, "Referer": "https://player.videasy.to/" }
                             }));
@@ -319,70 +408,95 @@
                 } catch (_) {}
             }));
             return results;
-        } catch (_) { return []; }
+        } catch (_) { return null; }
     }
 
-    // ───── Provider: Vidrock (AES-256-CBC) ─────
-    async function fetchVidrock(tmdbId, season, episode) {
+    // ───── Provider: Vidrock (AES-GCM) ─────
+    var VIDROCK_KEY_HEX = "7f3e9c2a8b5d1f4e6a9c3b7d2e5f8a1c4b6d9e2f5a8c1b4d7e9f2a5c8b1d4e7f";
+    var _vidrockCryptoKey = null;
+
+    function hexToBytes(hex) {
+        var b = new Uint8Array(hex.length / 2);
+        for (var i = 0; i < hex.length; i += 2) b[i / 2] = parseInt(hex.substr(i, 2), 16);
+        return b;
+    }
+
+    function base64UrlToBytes(str) {
+        var b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+        var pad = b64.length % 4;
+        if (pad === 2) b64 += "==";
+        else if (pad === 3) b64 += "=";
+        var bin = atob(b64);
+        var bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes;
+    }
+
+    async function decryptVidrockUrl(encStr) {
         try {
-            var keyB64 = "eDdrOW1QcVQycld2WTh6QTViQzNuRjZoSjJsSzRtTjk=";
-            var type = season == null ? "movie" : "tv";
-            var text = type === "tv" ? tmdbId + "_" + season + "_" + episode : String(tmdbId);
-
-            var encrypted = await vidrockEncrypt(keyB64, text);
-            if (!encrypted) return [];
-
-            var url = "https://vidrock.ru/api/" + type + "/" + encrypted;
-            var res = await http_get(url, { headers: { "Accept": "application/json, text/plain, */*", "User-Agent": UA } });
-            if (!res || !res.body) return [];
-            var sources = JSON.parse(res.body);
-
-            var results = [];
-            var keys = Object.keys(sources);
-            for (var ki = 0; ki < keys.length; ki++) {
-                var key = keys[ki];
-                var obj = sources[key];
-                if (!obj || !obj.url) continue;
-                var lang = obj.language || "Unknown";
-                var rawUrl = obj.url.indexOf("%") !== -1 ? decodeURIComponent(obj.url) : obj.url;
-                var fmt = rawUrl.indexOf(".mp4") !== -1 ? " MP4" : "";
-                var q = parseQuality(key);
-                results.push(new StreamResult({ source: "Vidrock [" + lang + fmt + " - " + qLabel(q) + "]", name: "Vidrock [" + key + " " + lang + fmt + " " + qLabel(q) + "]", url: rawUrl, quality: q, headers: H_VIDROCK }));
+            if (!encStr) return null;
+            if (encStr.indexOf("http://") === 0 || encStr.indexOf("https://") === 0) return encStr;
+            var raw = base64UrlToBytes(encStr);
+            if (raw.length < 28) return null;
+            var iv = raw.slice(0, 12);
+            var ciphertext = raw.slice(12);
+            var cryptoObj = globalThis.crypto || (typeof window !== "undefined" && window.crypto);
+            if (!_vidrockCryptoKey && cryptoObj && cryptoObj.subtle) {
+                var keyBytes = hexToBytes(VIDROCK_KEY_HEX);
+                _vidrockCryptoKey = await cryptoObj.subtle.importKey(
+                    "raw",
+                    keyBytes.buffer.slice(keyBytes.byteOffset, keyBytes.byteOffset + keyBytes.byteLength),
+                    { name: "AES-GCM" },
+                    false,
+                    ["decrypt"]
+                );
             }
-            return results;
-        } catch (_) { return []; }
-    }
-
-    function strToBytes(str) {
-        var b = []; for (var i = 0; i < str.length; i++) { var c = str.charCodeAt(i); if (c < 128) b.push(c); else if (c < 2048) { b.push(192 | (c >> 6)); b.push(128 | (c & 63)); } else { b.push(224 | (c >> 12)); b.push(128 | ((c >> 6) & 63)); b.push(128 | (c & 63)); } } return b;
-    }
-    function bytesToStr(bytes) { var s = ""; for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]); return s; }
-
-    function rawBytes(str) { var b = new Uint8Array(str.length); for (var i = 0; i < str.length; i++) b[i] = str.charCodeAt(i) & 0xFF; return b; }
-
-    async function vidrockEncrypt(keyB64, plaintext) {
-        try {
-            if (globalThis.crypto && globalThis.crypto.subtle && globalThis.crypto.subtle.encrypt) {
-                var keyStr = atob(keyB64);
-                var rawKey = rawBytes(keyStr);
-                var rawIv = rawKey.slice(0, 16);
-                var ptBytes = new TextEncoder().encode(plaintext);
-                var key = await globalThis.crypto.subtle.importKey("raw", rawKey, { name: "AES-CBC" }, false, ["encrypt"]);
-                var enc = await globalThis.crypto.subtle.encrypt({ name: "AES-CBC", iv: rawIv }, key, ptBytes);
-                var b64 = btoa(bytesToStr(new Uint8Array(enc)));
-                return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-            }
-        } catch (_) {}
-        try {
-            if (globalThis.crypto && globalThis.crypto.encryptAES) {
-                var keyStr = atob(keyB64);
-                var ivB64 = btoa(keyStr.substring(0, 16));
-                var ptB64 = btoa(unescape(encodeURIComponent(plaintext)));
-                var encB64 = await globalThis.crypto.encryptAES(ptB64, keyB64, ivB64);
-                if (encB64) return encB64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+            if (_vidrockCryptoKey && cryptoObj && cryptoObj.subtle) {
+                var ivBuf = iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength);
+                var ctBuf = ciphertext.buffer.slice(ciphertext.byteOffset, ciphertext.byteOffset + ciphertext.byteLength);
+                var decrypted = await cryptoObj.subtle.decrypt({ name: "AES-GCM", iv: ivBuf }, _vidrockCryptoKey, ctBuf);
+                return new TextDecoder().decode(decrypted);
             }
         } catch (_) {}
         return null;
+    }
+
+    async function fetchVidrock(tmdbId, season, episode) {
+        try {
+            var type = season == null ? "movie" : "tv";
+            var path = type === "tv" ? "tv/" + tmdbId + "/" + season + "/" + episode : "movie/" + tmdbId;
+            var hosts = ["https://vidrock.net/api", "https://vidrock.ru/api"];
+            var res = null;
+            // Vidrock: query multi-host with fallback
+            for (var hi = 0; hi < hosts.length; hi++) {
+                var r = await http_get(hosts[hi] + "/" + path, {
+                    headers: { "Referer": "https://vidrock.ru/", "Origin": "https://vidrock.ru", "Accept": "application/json, text/plain, */*", "User-Agent": UA }
+                });
+                if (r && r.status === 200 && r.body) { res = r; break; }
+            }
+            if (!res || !res.body) return [];
+            var sources = JSON.parse(res.body);
+            var results = [];
+            var srvKeys = Object.keys(sources);
+            for (var ki = 0; ki < srvKeys.length; ki++) {
+                var srvName = srvKeys[ki];
+                var srvObj = sources[srvName];
+                if (!srvObj || !srvObj.url) continue;
+                var streamUrl = await decryptVidrockUrl(srvObj.url);
+                if (!streamUrl) continue;
+                var lang = srvObj.language || "Unknown";
+                var fmt = streamUrl.indexOf(".mp4") !== -1 ? " MP4" : "";
+                var q = parseQuality(srvName);
+                results.push(new StreamResult({
+                    source: "Vidrock [" + srvName + " " + lang + fmt + " - " + qLabel(q) + "]",
+                    name: "Vidrock [" + srvName + " " + lang + fmt + " " + qLabel(q) + "]",
+                    url: streamUrl,
+                    quality: q,
+                    headers: H_VIDROCK
+                }));
+            }
+            return results;
+        } catch (_) { return []; }
     }
 
     // ───── Provider: VidFast (multi-step encryption) ─────
@@ -401,13 +515,13 @@
             };
 
             var pageRes = await http_get(requestUrl, { headers: baseHeaders });
-            if (!pageRes || !pageRes.body) return [];
+            if (!pageRes || !pageRes.body || pageRes.status >= 400) return null;
             var encMatch = pageRes.body.match(/\\"en\\":\\"(.*?)\\"/);
-            if (!encMatch) return [];
+            if (!encMatch) return null;
             var encodedText = encMatch[1];
 
             var encRes = await http_get(api + "/enc-vidfast?text=" + encodeURIComponent(encodedText) + "&version=" + version, { headers: baseHeaders });
-            if (!encRes || !encRes.body) return [];
+            if (!encRes || !encRes.body || encRes.status !== 200) return null;
             var encJson = JSON.parse(encRes.body);
             var result = encJson.result;
             if (!result || !result.servers || !result.stream) return [];
@@ -451,7 +565,7 @@
                 } catch (_) {}
             }));
             return results;
-        } catch (_) { return []; }
+        } catch (_) { return null; }
     }
 
     // ───── Provider: RiveStream ─────
@@ -503,7 +617,10 @@
                     if (season != null) streamUrl += "&season=" + season + "&episode=" + episode;
                     streamUrl += "&secretKey=" + secretKey;
 
-                    var streamRes = await http_get(streamUrl, { headers: headers });
+                    var streamRes = await Promise.race([
+                        http_get(streamUrl, { headers: headers }),
+                        new Promise(function(r) { setTimeout(function() { r(null); }, 3500); })
+                    ]);
                     if (!streamRes || !streamRes.body) return;
                     var streamJson = JSON.parse(streamRes.body);
                     var data = streamJson.data;
@@ -596,7 +713,7 @@
                 headers: { "Content-Type": "application/x-www-form-urlencoded", "Referer": url },
                 body: "pls=pls"
             });
-            if (!res || !res.body) return [];
+            if (!res || !res.body || res.status >= 400) return null;
             var doc = parseHtml(res.body);
             var iframe = doc.querySelector("iframe#iframesrc");
             if (!iframe) return [];
@@ -607,7 +724,7 @@
             var m3u8 = await fetchFromUqloads("https://uqloads.xyz/e/" + id);
             if (m3u8) return [new StreamResult({ source: "2Embed [Auto - 1080p]", name: "2Embed", url: m3u8, quality: 1080 })];
             return [];
-        } catch (_) { return []; }
+        } catch (_) { return null; }
     }
 
     // ───── Provider: VidSrcXyz (multi-decrypt) ─────
@@ -710,13 +827,13 @@
                 ? "https://vidsrc-embed.su/embed/movie?imdb=" + imdbId
                 : "https://vidsrc-embed.su/embed/tv?imdb=" + imdbId + "&season=" + season + "&episode=" + episode;
             var res = await http_get(url, { headers: { "User-Agent": UA } });
-            if (!res || !res.body) return [];
+            if (!res || !res.body || res.status >= 400) return null;
             var doc = parseHtml(res.body);
             var iframeSrc = doc.querySelector("iframe") && doc.querySelector("iframe").getAttribute("src");
             if (!iframeSrc) return [];
             if (iframeSrc.indexOf("http") !== 0) iframeSrc = "https:" + iframeSrc;
             res = await http_get(iframeSrc, { headers: { "User-Agent": UA, "Referer": url } });
-            if (!res || !res.body) return [];
+            if (!res || !res.body || res.status >= 400) return null;
             var srcMatch = res.body.match(/src:\s+'([^']+)'/);
             if (!srcMatch) return [];
             var prorcpUrl = srcMatch[1];
@@ -724,7 +841,7 @@
             if (prorcpUrl.indexOf("http") !== 0) prorcpUrl = host + prorcpUrl;
             var ref = prorcpUrl.indexOf("rcp") !== -1 ? prorcpUrl.substring(0, prorcpUrl.indexOf("rcp")) : prorcpUrl;
             res = await http_get(prorcpUrl, { headers: { "User-Agent": UA, "Referer": iframeSrc } });
-            if (!res || !res.body) return [];
+            if (!res || !res.body || res.status >= 400) return null;
             var playerMatch = res.body.match(/Playerjs\(\{.*?file:"([^"]*)".*?\}\)/);
             var content = "", id = "";
             if (playerMatch) {
@@ -755,7 +872,7 @@
                 results.push(new StreamResult({ source: displaySource, name: "VidsrcXYZ" + (srvLabel ? " [" + srvLabel + "]" : ""), url: finalUrl, quality: 1080, headers: { "Referer": ref } }));
             }
             return results;
-        } catch (_) { return []; }
+        } catch (_) { return null; }
     }
 
     // ───── SkyMoviesHD Stream Provider ─────
@@ -885,6 +1002,32 @@
                     var fastM = html.match(/href="([^"]*gdflix\.dev\/zfile\/[^"]*)"/i);
                     if (fastM) streams.push({ url: fastM[1], label: "GDFlix Fast Cloud" });
                 }
+            } else if (isHoster("hubcloud") && lowerUrl.indexOf("pixel.hubcloud.cx") !== -1) {
+                // HubCloud pixel redirect resolution
+                var cur = url, resolvedDirect = null;
+                for (var pi = 0; pi < 4; pi++) {
+                    var pr = await http_get(cur, { redirect: "manual", headers: { "User-Agent": UA } });
+                    if (!pr) break;
+                    var loc = pr.headers && (pr.headers["location"] || pr.headers["Location"]);
+                    if (!loc) break;
+                    if (loc.indexOf("link=") !== -1) {
+                        resolvedDirect = decodeURIComponent(loc.split("link=")[1]);
+                        break;
+                    }
+                    cur = loc.indexOf("http") === 0 ? loc : getBaseUrl(cur) + (loc.indexOf("/") === 0 ? "" : "/") + loc;
+                }
+                if (resolvedDirect) streams.push({ url: resolvedDirect, label: "HubCloud 10Gbps Direct", skip_filter: true });
+                else streams.push({ url: url, label: "HubCloud 10Gbps" });
+            } else if (isHoster("hubcloud") && lowerUrl.indexOf("hubdrive") !== -1) {
+                // HubDrive page extractor to HubCloud
+                var hdHtml = await fetchUrl(url, HTML_HEADERS);
+                if (hdHtml) {
+                    var hcM = hdHtml.match(/href=["']([^"']*hubcloud\.[^"']*)["']/i);
+                    if (hcM) {
+                        var subStreams = await resolveDirectStream(hcM[1]);
+                        if (subStreams && subStreams.length > 0) streams = streams.concat(subStreams);
+                    }
+                }
             } else if (isHoster("hubcloud") && (lowerUrl.indexOf("hubcloud") !== -1 || lowerUrl.indexOf("vcloud") !== -1)) {
                 var html = await fetchUrl(url, HTML_HEADERS);
                 if (html) {
@@ -894,11 +1037,29 @@
                         var genHtml = await fetchUrl(genUrl, HTML_HEADERS);
                         if (genHtml) {
                             var pxM = genHtml.match(/href="([^"]*pixel\.hubcloud\.cx[^"]*)"/i);
-                            if (pxM) streams.push({ url: pxM[1], label: "HubCloud 10Gbps" });
+                            if (pxM) {
+                                var curPx = pxM[1], directStream = null;
+                                for (var pxi = 0; pxi < 4; pxi++) {
+                                    var pxRes = await http_get(curPx, { redirect: "manual", headers: { "User-Agent": UA } });
+                                    if (!pxRes) break;
+                                    var pxLoc = pxRes.headers && (pxRes.headers["location"] || pxRes.headers["Location"]);
+                                    if (!pxLoc) break;
+                                    if (pxLoc.indexOf("link=") !== -1) {
+                                        directStream = decodeURIComponent(pxLoc.split("link=")[1]);
+                                        break;
+                                    }
+                                    curPx = pxLoc.indexOf("http") === 0 ? pxLoc : getBaseUrl(curPx) + (pxLoc.indexOf("/") === 0 ? "" : "/") + pxLoc;
+                                }
+                                if (directStream) {
+                                    streams.push({ url: directStream, label: "HubCloud 10Gbps Direct", skip_filter: true });
+                                } else {
+                                    streams.push({ url: pxM[1], label: "HubCloud 10Gbps" });
+                                }
+                            }
                             var pxlM = genHtml.match(/var\s+pxl\s*=\s*["']([^"']+)["']/);
                             if (pxlM) {
                                 var pxlId = pxlM[1].split("/u/")[1];
-                                streams.push({ url: "https://pixeldrain.dev/api/file/" + pxlId + "?download", label: "HubCloud Pixeldrain" });
+                                streams.push({ url: "https://pixeldrain.dev/api/file/" + pxlId + "?download", label: "HubCloud Pixeldrain", skip_filter: true });
                             }
                             var buzzM = genHtml.match(/href="([^"]*bzzhr\.co[^"]*)"/i);
                             if (buzzM) streams.push({ url: buzzM[1], label: "HubCloud Buzz" });
@@ -1128,9 +1289,14 @@
             var searchTitle = details.title || details.name || "";
             var searchYear = (details.release_date || details.first_air_date || "").split("-")[0];
 
-            // Search skymovieshd
+            // Search skymovieshd with domain fallback
             var q = encodeURIComponent(cleanText(searchTitle));
-            var res = await http_get(SKY_API + "/search.php?search=" + q + "&cat=All", { headers: H_SKY });
+            var skyBase = SKY_API;
+            var res = await http_get(skyBase + "/search.php?search=" + q + "&cat=All", { headers: H_SKY });
+            if (!res || !res.body || res.status !== 200) {
+                skyBase = SKY_API_FALLBACK;
+                res = await http_get(skyBase + "/search.php?search=" + q + "&cat=All", { headers: H_SKY });
+            }
             if (!res || !res.body) return [];
 
             var doc = parseHtml(res.body);
@@ -1192,7 +1358,7 @@
 
             // 1. Fetch all quality page HTML contents in parallel
             var prs = await Promise.all(slicedMatches.map(function(match) {
-                return http_get(SKY_API + match.href, { headers: H_SKY });
+                return http_get(skyBase + match.href, { headers: H_SKY });
             }));
 
             // 2. Extract anchors & details from all page bodies
@@ -1269,11 +1435,13 @@
 
             // 7. Resolve all direct streams in parallel with per-URL timeout
             var resolvedResults = await Promise.all(uniqueCandidates.map(function(cand) {
+                var isHosterUrl = /pixel\.hubcloud|hubcloud|hubdrive|pixeldrain|filepress|gdflix|voe|streamtape|multicloud|uploadflix|uploadhub|xfile|busycdn/i.test(cand.url);
+                if (!isHosterUrl) return Promise.resolve({ cand: cand, streams: [] });
                 var rp = resolveDirectStream(cand.url).then(function(streams) {
                     return { cand: cand, streams: streams };
                 });
                 var tp = new Promise(function(resolve) {
-                    setTimeout(function() { resolve({ cand: cand, streams: [] }); }, 8000);
+                    setTimeout(function() { resolve({ cand: cand, streams: [] }); }, 4000);
                 });
                 return Promise.race([rp, tp]);
             }));
@@ -1287,7 +1455,7 @@
                         var sUrl = directStreams[ds].url;
                         if (seenUrls[sUrl]) continue;
                         seenUrls[sUrl] = true;
-                        var isParallel = (/pixeldrain|hubcloud|gdflix|hubdrive|filepress|gofile|cinedrive/i.test(sUrl) || /pixeldrain|hubcloud|gdflix|hubdrive|filepress|gofile|cinedrive/i.test(cand.url))
+                        var isParallel = (/pixeldrain|hubcloud|gdflix|hubdrive|filepress|gofile|cinedrive|googleusercontent/i.test(sUrl) || /pixeldrain|hubcloud|gdflix|hubdrive|filepress|gofile|cinedrive/i.test(cand.url))
                              && !/\.(m3u8|mpd|ts)($|\?)/i.test(sUrl)
                              && sUrl.indexOf("master.m3u8") === -1
                              && sUrl.indexOf("/hls2") === -1
@@ -1305,7 +1473,7 @@
                 } else {
                     if (seenUrls[cand.url]) continue;
                     seenUrls[cand.url] = true;
-                    var isParallel = /pixeldrain|hubcloud|gdflix|hubdrive|filepress|gofile|cinedrive/i.test(cand.url)
+                    var isParallel = /pixeldrain|hubcloud|gdflix|hubdrive|filepress|gofile|cinedrive|googleusercontent/i.test(cand.url)
                          && !/\.(m3u8|mpd|ts)($|\?)/i.test(cand.url)
                          && cand.url.indexOf("master.m3u8") === -1
                          && cand.url.indexOf("/hls2") === -1
@@ -1315,7 +1483,7 @@
                         name: "SkyMoviesHD [" + cand.txt + "]",
                         url: cand.url,
                         quality: cand.quality,
-                        headers: { "User-Agent": UA, "Referer": SKY_API + "/" },
+                        headers: { "User-Agent": UA, "Referer": skyBase + "/" },
                         parallel: isParallel
                     }));
                 }
@@ -1333,13 +1501,13 @@
                 ? "https://vidcore.net/movie/" + tmdbId
                 : "https://vidcore.net/tv/" + tmdbId + "/" + season + "/" + episode;
             var pageRes = await http_get(baseUrl, { headers: { "User-Agent": UA, "Referer": "https://vidcore.net/", "X-Requested-With": "XMLHttpRequest" } });
-            if (!pageRes || !pageRes.body) return [];
+            if (!pageRes || !pageRes.body || pageRes.status >= 400) return null;
             var encMatch = pageRes.body.match(/\\"en\\":\\"(.*?)\\"/);
-            if (!encMatch) return [];
+            if (!encMatch) return null;
             var text = encMatch[1];
 
             var encRes = await http_get(api + "/enc-vidcore?text=" + encodeURIComponent(text), { headers: { "User-Agent": UA } });
-            if (!encRes || !encRes.body) return [];
+            if (!encRes || !encRes.body || encRes.status !== 200) return null;
             var parts = JSON.parse(encRes.body);
             if (parts.status !== 200) return [];
             var servers = parts.result.servers;
@@ -1385,7 +1553,7 @@
                 } catch (_) {}
             }));
             return results;
-        } catch (_) { return []; }
+        } catch (_) { return null; }
     }
 
     // ───── Provider: VidSync ─────
@@ -1400,11 +1568,11 @@
             if (!title || !year) return [];
 
             var tokenResp = await http_get(api + "/enc-vidsync", { headers: HEADERS });
-            if (!tokenResp || !tokenResp.body) return [];
+            if (!tokenResp || !tokenResp.body || tokenResp.status !== 200) return null;
             var tokenData = JSON.parse(tokenResp.body);
-            if (tokenData.status !== 200) return [];
+            if (tokenData.status !== 200) return null;
             var turnstileToken = tokenData.result && tokenData.result.token;
-            if (!turnstileToken) return [];
+            if (!turnstileToken) return null;
 
             var qTitle = encodeURIComponent(title).replace(/%20/g, "+");
             var mediaType = season == null ? "movie" : "tv";
@@ -1436,7 +1604,7 @@
                 } catch (_) {}
             }));
             return results;
-        } catch (_) { return []; }
+        } catch (_) { return null; }
     }
 
     // ───── Provider: MovieLinkBD ─────
@@ -1567,7 +1735,7 @@
             if (!title) return [];
 
             var searchRes = await http_get(MOVIELINKBD_BASE + "/search?q=" + encodeURIComponent((title + " " + year).trim()), { headers: H_MOVIELINKBD });
-            if (!searchRes || !searchRes.body) return [];
+            if (!searchRes || !searchRes.body || searchRes.status >= 400) return null;
 
             var movieUrl = null;
             var seenUrls = {};
@@ -1591,7 +1759,7 @@
             if (!movieUrl) return [];
 
             var movieRes = await http_get(movieUrl, { headers: H_MOVIELINKBD });
-            if (!movieRes || !movieRes.body) return [];
+            if (!movieRes || !movieRes.body || movieRes.status >= 400) return null;
 
             var getLinks = mlbdExtractGetLinks(movieRes.body);
             if (getLinks.length === 0) return [];
@@ -1611,30 +1779,45 @@
             });
             await Promise.all(resolveCalls);
             return results;
-        } catch (_) { return []; }
+        } catch (_) { return null; }
     }
 
     // ─ Provider timeout + circuit breaker ─────
-    var FLUX_TIMEOUT_MS = 12000;
+    var FLUX_TIMEOUT_MS = 15000;
     var FLUX_MAX_FAILURES = 2;
+    var FLUX_RESET_MS = 300000;
+    var _failMap = {};
 
     function fluxTimeout(promise, ms) {
+        var timer;
         return Promise.race([
             promise,
-            new Promise(function(r) { setTimeout(function() { r([]); }, ms); })
-        ]);
+            new Promise(function(resolve) {
+                timer = setTimeout(function() { resolve("__FLUX_TIMEOUT__"); }, ms);
+            })
+        ]).then(function(res) {
+            if (timer) clearTimeout(timer);
+            return res;
+        });
     }
 
-    function fluxStream(providerFn, name, failMap) {
+    function fluxStream(providerFn, name) {
         return function() {
-            if ((failMap[name] || 0) >= FLUX_MAX_FAILURES) return Promise.resolve([]);
+            var state = _failMap[name] || { fails: 0, lastFail: 0 };
+            var now = Date.now();
+            if (state.fails >= FLUX_MAX_FAILURES && (now - state.lastFail) < FLUX_RESET_MS) {
+                return Promise.resolve([]);
+            }
             return fluxTimeout(providerFn.apply(null, arguments), FLUX_TIMEOUT_MS).then(function(r) {
-                if (!r || (Array.isArray(r) && r.length === 0)) {
-                    failMap[name] = (failMap[name] || 0) + 1;
-                } else {
-                    failMap[name] = 0;
+                if (r === "__FLUX_TIMEOUT__" || r === null) {
+                    _failMap[name] = { fails: (state.fails || 0) + 1, lastFail: Date.now() };
+                    return [];
                 }
-                return r;
+                _failMap[name] = { fails: 0, lastFail: 0 };
+                return Array.isArray(r) ? r : [];
+            }).catch(function() {
+                _failMap[name] = { fails: (state.fails || 0) + 1, lastFail: Date.now() };
+                return [];
             });
         };
     }
@@ -1666,7 +1849,6 @@
             if (details) _tmdbCache[tmdbId] = details;
             if (details && details.external_ids && details.external_ids.imdb_id) imdbId = details.external_ids.imdb_id;
 
-            var failMap = {};
             var PROVIDERS = [
                 { name: "Vaplayer", fn: fetchVaplayer, useImdb: false },
                 { name: "Vidlink", fn: fetchVidlink, useImdb: false },
@@ -1686,7 +1868,7 @@
             for (var pi = 0; pi < PROVIDERS.length; pi++) {
                 var prov = PROVIDERS[pi];
                 if (!isExtractor(prov.name)) continue;
-                var wrapped = fluxStream(prov.fn, prov.name, failMap);
+                var wrapped = fluxStream(prov.fn, prov.name);
                 var id = prov.useImdb ? imdbId : tmdbId;
                 providerCalls.push(wrapped(id, season, episode));
             }
