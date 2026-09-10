@@ -1,7 +1,7 @@
 {
   "packagename": "dev.fluxio.fluxforge",
   "name": "FluxForge",
-  "version": 1,
+  "version": 2,
   "baseUrl": "https://api.tmdb.org",
   "apiKey": "",
   "description": "Browse movies and TV shows via TMDB API",
@@ -15,12 +15,13 @@
     "Vidrock": true,
     "RiveStream": true,
     "2embed": true,
-    "VidSrcXyz": true,
+    "VidSrcXyz": false,
     "SkyMoviesHD": true,
-    "VidFast": true,
-    "VidCore": true,
-    "VidSync": true,
-    "MovieLinkBD": true
+    "VidFast": false,
+    "VidCore": false,
+    "VidSync": false,
+    "MovieLinkBD": true,
+    "MLSBD": true
   },
   "hosters": {
     "pixeldrain": true,
