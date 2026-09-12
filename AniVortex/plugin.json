@@ -1,0 +1,34 @@
+{
+  "packageName": "dev.fluxio.anivortex",
+  "name": "AniVortex",
+  "version": 1,
+  "baseUrl": "https://api.anivortex.in",
+  "description": "High Quality Anime, Movies & TV Shows directly from AniVortex with multi-audio & subtitles",
+  "authors": [
+    "0xBadCode"
+  ],
+  "languages": [
+    "en",
+    "ja",
+    "hi"
+  ],
+  "categories": [
+    "Anime",
+    "Movie",
+    "TvSeries"
+  ],
+  "providers": [
+    {
+      "id": "ALL",
+      "name": "All Content"
+    },
+    {
+      "id": "MOVIES",
+      "name": "Movies & Series"
+    },
+    {
+      "id": "ANIME",
+      "name": "Anime"
+    }
+  ]
+}
