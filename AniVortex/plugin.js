@@ -723,6 +723,7 @@
             for (let sIdx = 0; sIdx < serverList.length; sIdx++) {
                 const srv = serverList[sIdx];
                 const subList = Array.isArray(srv.subtitles) ? srv.subtitles : [];
+                const srvHeaders = (srv.headers && Object.keys(srv.headers).length) ? srv.headers : undefined;
                 for (let subIdx = 0; subIdx < subList.length; subIdx++) {
                     const sub = subList[subIdx];
                     if (!sub || !sub.url || seenSubUrls.has(sub.url)) continue;
@@ -733,7 +734,8 @@
                         url: sub.url,
                         file: sub.url,
                         label: label,
-                        lang: lang
+                        lang: lang,
+                        headers: sub.headers || srvHeaders
                     });
                 }
             }
@@ -778,9 +780,19 @@
                         const fmtTag = isHls ? 'HLS' : (isDash ? 'DASH' : 'MP4');
                         const sourceLabel = 'AniVortex [' + srvName + '] [' + langName + '] ' + qLabel + ' (' + fmtTag + ')';
 
-                        const headers = (c.headers && Object.keys(c.headers).length)
-                            ? c.headers
-                            : { 'User-Agent': 'Dart/3.10 (dart:io)' };
+                        let headers = { 'User-Agent': 'Dart/3.10 (dart:io)' };
+                        if (c.headers && typeof c.headers === 'object' && Object.keys(c.headers).length) {
+                            headers = {};
+                            for (const k in c.headers) {
+                                if (Object.prototype.hasOwnProperty.call(c.headers, k)) {
+                                    if (k.toLowerCase() === 'user-agent') {
+                                        headers['User-Agent'] = c.headers[k];
+                                    } else {
+                                        headers[k] = c.headers[k];
+                                    }
+                                }
+                            }
+                        }
 
                         results.push(new StreamResult({
                             url: c.url,
