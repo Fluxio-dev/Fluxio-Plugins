@@ -19,10 +19,6 @@
   ],
   "providers": [
     {
-      "id": "ALL",
-      "name": "All Content"
-    },
-    {
       "id": "MOVIES",
       "name": "Movies & Series"
     },

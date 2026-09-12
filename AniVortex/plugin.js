@@ -481,7 +481,6 @@
 
     // Exposed providers for Fluxio runtime (matched via /id:\s*['\"]([A-Z\s]{3,})['\"]/g)
     const PROVIDERS = [
-        { id: 'ALL', name: 'All Content' },
         { id: 'MOVIES', name: 'Movies & Series' },
         { id: 'ANIME', name: 'Anime' }
     ];
@@ -533,71 +532,18 @@
         try {
             const rawProvider = (typeof manifest !== 'undefined' && manifest && manifest.providerId)
                 ? String(manifest.providerId).toLowerCase().trim()
-                : 'all';
+                : 'movies and series';
 
-            if (rawProvider === 'anime') {
+            if (rawProvider.includes('anime')) {
                 const animeRes = await signedApiRequest('GET', '/api/v1/catalog/home', { catalog: 'anime' });
                 const sections = parseCatalogSections(animeRes, {});
                 return cb({ success: true, data: sections });
             }
 
-            if (rawProvider === 'movies' || rawProvider === 'movie_series') {
-                const moviesRes = await signedApiRequest('GET', '/api/v1/catalog/home', { catalog: 'movie_series' });
-                const sections = parseCatalogSections(moviesRes, { 'Featured Now': 'Featured Movies & Series' });
-                return cb({ success: true, data: sections });
-            }
-
-            // Default: 'all' -> Parallel fetch of both Movies/Series & Anime for a rich diverse homeview
-            const [moviesRes, animeRes] = await Promise.all([
-                signedApiRequest('GET', '/api/v1/catalog/home', { catalog: 'movie_series' }),
-                signedApiRequest('GET', '/api/v1/catalog/home', { catalog: 'anime' })
-            ]);
-
-            const movieSections = parseCatalogSections(moviesRes, { 'Featured Now': 'Featured Movies & Series' });
-            const animeSections = parseCatalogSections(animeRes, {});
-
-            const priority = [
-                'Featured Movies & Series',
-                'Featured Anime',
-                'Recently Added Movies',
-                'Recently Added Series',
-                'Latest Anime',
-                'Top 10 Rated Movies on IMDb',
-                'Top 10 Rated Series on IMDb',
-                'Top Rated Anime',
-                'Most Watched on AniVortex',
-                'Popular This Season',
-                'Top Series This Week',
-                'Top Movies This Week',
-                'Action Movies',
-                'Action Anime',
-                'Popular TV Series',
-                'Fantasy Anime',
-                'Romantic Movies',
-                'Romance Anime',
-                'Mystery and Thriller Movies',
-                'Adventure Anime',
-                'Horror Movies',
-                'Comedy Movies',
-                'Classic Anime'
-            ];
-
-            const combined = {};
-            const allAvailable = Object.assign({}, movieSections, animeSections);
-
-            for (let p = 0; p < priority.length; p++) {
-                const key = priority[p];
-                if (allAvailable[key]) {
-                    combined[key] = allAvailable[key];
-                    delete allAvailable[key];
-                }
-            }
-
-            for (const key in allAvailable) {
-                combined[key] = allAvailable[key];
-            }
-
-            cb({ success: true, data: combined });
+            // Default provider: 'movies and series'
+            const moviesRes = await signedApiRequest('GET', '/api/v1/catalog/home', { catalog: 'movie_series' });
+            const sections = parseCatalogSections(moviesRes, { 'Featured Now': 'Featured Movies & Series' });
+            cb({ success: true, data: sections });
         } catch (e) {
             cb({ success: false, errorCode: 'HOME_ERROR', message: String(e && e.message || e) });
         }
